@@ -4,9 +4,9 @@ from abc import ABC, abstractmethod
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, Type, Union
 
 import cloudpickle
-import gym
+import gymnasium as gym
 import numpy as np
-from gym import spaces
+from gymnasium import spaces
 
 # Define type aliases here to avoid circular import
 # Used when we want to access one or more VecEnv

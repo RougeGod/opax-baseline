@@ -1,7 +1,7 @@
 """Common aliases for type hints"""
 from typing import Any, Dict, Tuple, Union
 
-import gym
+import gymnasium as gym
 import numpy as np
 
 

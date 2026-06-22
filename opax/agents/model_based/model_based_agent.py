@@ -6,7 +6,7 @@ from opax.optimizers.cem_trajectory_optimizer import CemTO
 from opax.optimizers.trajax_trajectory_optimizer import TraJaxTO
 from opax.optimizers.sac_based_optimizer import SACOptimizer
 from opax.optimizers.icem_trajectory_optimizer import ICemTO
-import gym
+import gymnasium as gym
 from opax.utils.replay_buffer import ReplayBuffer, Transition
 from opax.utils.utils import get_idx
 from opax.agents.dummy_agent import DummyAgent
@@ -149,7 +149,7 @@ class ModelBasedAgent(DummyAgent):
 
         self.step = jax.jit(step)
 
-    def act_in_jax(self, obs: jax.Array, rng: jax.random.PRNGKeyArray, eval: bool = False, eval_idx: int = 0):
+    def act_in_jax(self, obs: jax.Array, rng: jax.Array, eval: bool = False, eval_idx: int = 0):
         # forward pass through policy if policy optimizer is SAC
         if isinstance(self.policy_optimizer, SACOptimizer):
             if eval:
@@ -194,14 +194,14 @@ class ModelBasedAgent(DummyAgent):
         return action
 
     def train_step(self,
-                   rng: jax.random.PRNGKeyArray,
+                   rng: jax.Array,
                    buffer: ReplayBuffer,
                    validate: bool = True,
                    log_results: bool = True,
                    ) -> int:
         """
         Training of model based agent
-        :param rng: jax.random.PRNGKeyArray, random key
+        :param rng: jax.Array, random key
         :param buffer: ReplayBuffer, buffer of collected transition
         :param validate: bool, boolean for validating model
         :param log_results: bool, boolean to indicate logging of training results.
@@ -253,6 +253,7 @@ class ModelBasedAgent(DummyAgent):
                 else:
                     model_opt_state = self.dynamics_model.model_opt_state
             alpha = jnp.ones(self.observation_space.shape)
+
             for i in range(train_loops):
                 train_rng, rng = jax.random.split(rng, 2)
                 transitions = buffer.sample(train_rng, batch_size=int(self.batch_size * train_steps))

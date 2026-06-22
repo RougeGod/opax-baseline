@@ -3,9 +3,9 @@ from multiprocessing.connection import Connection
 from collections import OrderedDict
 from typing import Any, Callable, List, Optional, Sequence, Tuple, Type, Union
 
-import gym
+import gymnasium as gym
 import numpy as np
-from gym import spaces
+from gymnasium import spaces
 
 from opax.utils.vec_env.base_vec_env import (
     CloudpickleWrapper,

@@ -3,7 +3,7 @@ from copy import deepcopy
 from typing import Any, Dict, List, Optional, Union, Tuple
 
 import numpy as np
-from gym import spaces
+from gymnasium import spaces
 
 from opax.utils.vec_env.env_data_utils import check_for_correct_spaces
 from opax.utils.vec_env.env_data_utils import is_image_space

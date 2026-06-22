@@ -2,7 +2,7 @@ import os
 from typing import Any, Callable, Dict, Optional, Type, Union
 
 
-import gym
+import gymnasium as gym
 
 from opax.utils.env_wrappers.atari_wrappers import AtariWrapper
 from opax.utils.env_wrappers.monitor import Monitor

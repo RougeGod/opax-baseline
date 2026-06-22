@@ -1,7 +1,7 @@
 import os
 from typing import Callable, Optional
 
-from gym.wrappers.monitoring import video_recorder
+from gymnasium.wrappers import RecordVideo as video_recorder
 
 from opax.utils.vec_env.base_vec_env import VecEnv, VecEnvObs, VecEnvStepReturn, VecEnvWrapper
 from opax.utils.vec_env.dummy_vec_env import DummyVecEnv

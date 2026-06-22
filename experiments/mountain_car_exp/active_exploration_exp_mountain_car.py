@@ -1,4 +1,4 @@
-from gym.wrappers import RescaleAction, TimeLimit
+from gymnasium.wrappers import RescaleAction, TimeLimit
 from opax.utils.vec_env.env_util import make_vec_env
 from opax.models.environment_models.mountain_car import MountainCarRewardModel, MountainCarDynamics
 from opax.envs.custom_mountain_car_env import CustomMountainCar
@@ -61,7 +61,6 @@ def experiment(logs_dir: str, use_wandb: bool, exp_name: str, time_limit: int, n
     }
 
     lr = 5e-4
-
 
     # config.update("jax_log_compiles", 1)
     wrapper_cls = lambda x: RescaleAction(
@@ -188,6 +187,7 @@ def experiment(logs_dir: str, use_wandb: bool, exp_name: str, time_limit: int, n
         video_prefix=video_prefix,
         video_folder=logs_dir,
     )
+
     group_name = exploration_strategy
     if use_log:
         group_name += "_log_rewards"
@@ -200,6 +200,7 @@ def experiment(logs_dir: str, use_wandb: bool, exp_name: str, time_limit: int, n
             group=group_name,
         )
     trainer.train()
+
 
     result_dict = {
     }

@@ -11,7 +11,7 @@ from opax.utils.network_utils import MLP, mse
 from opax.utils.replay_buffer import ReplayBuffer, Transition
 from flax import struct
 from copy import deepcopy
-import gym
+import gymnasium as gym
 from opax.utils.utils import gaussian_log_likelihood, sample_normal_dist
 from opax.agents.dummy_agent import DummyAgent
 import wandb

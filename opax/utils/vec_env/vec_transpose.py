@@ -2,7 +2,7 @@ from copy import deepcopy
 from typing import Dict, Union, Optional
 
 import numpy as np
-from gym import spaces
+from gymnasium import spaces
 
 from opax.utils.vec_env.env_data_utils import is_image_space, is_image_space_channels_first
 from opax.utils.vec_env.base_vec_env import VecEnv, VecEnvStepReturn, VecEnvWrapper

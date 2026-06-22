@@ -6,3 +6,4 @@ wandb/
 /results/
 /.idea/
 /build/
+wandb_api_key

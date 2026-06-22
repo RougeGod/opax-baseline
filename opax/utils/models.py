@@ -10,7 +10,7 @@ import jax
 from opax.utils.utils import gaussian_log_likelihood, rbf_kernel
 import optax
 from jax.scipy.stats import norm
-from jaxutils import Dataset
+from gpjax import Dataset
 from jax.tree_util import register_pytree_node_class
 from jax import random
 from jax.scipy.stats import multivariate_normal
@@ -42,7 +42,7 @@ def _calculate_calibration_alpha(calibration_error_fn: Callable, params: PyTree,
 
 
 def _predict(apply_fn: Callable, params: PyTree, x: chex.Array, sig_max: Union[chex.Array, float],
-             sig_min: Union[chex.Array, float], rng: Optional[jax.random.PRNGKeyArray] = None,
+             sig_min: Union[chex.Array, float], rng: Optional[jax.Array] = None,
              deterministic: bool = False) -> chex.Array:
     """Predict next mean and aleatoric std."""
     forward = jax.vmap(apply_fn, (0, None))

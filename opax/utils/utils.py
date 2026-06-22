@@ -22,7 +22,7 @@ def gaussian_log_likelihood(x: chex.Array, mu: chex.Array, sig: chex.Array):
 
 
 @jit
-def sample_normal_dist(mu: chex.Array, sig: chex.Array, rng: jax.random.PRNGKeyArray):
+def sample_normal_dist(mu: chex.Array, sig: chex.Array, rng: jax.Array):
     return mu + jax.random.normal(rng, mu.shape) * sig
 
 
@@ -41,7 +41,7 @@ def rbf_kernel(x: chex.Array, y: chex.Array, bandwidth: Optional[float] = None):
 
 @partial(jit, static_argnums=(2, 3))
 def rollout_actions(action_sequence: chex.Array, initial_state: chex.Array, dynamics_model, reward_model,
-                    rng: jax.random.PRNGKeyArray):
+                    rng: jax.Array):
     state = initial_state
     states = jnp.zeros_like(initial_state)
     batch_size = initial_state.shape[0]
@@ -64,7 +64,7 @@ def rollout_actions(action_sequence: chex.Array, initial_state: chex.Array, dyna
 
 @partial(jit, static_argnums=(0, 2, 3, 5))
 def rollout_policy(policy: Callable, initial_state: chex.Array, dynamics_model, reward_model,
-                   rng: jax.random.PRNGKeyArray,  num_steps: int = 10):
+                   rng: jax.Array,  num_steps: int = 10):
     state = initial_state
     state_shape = (num_steps + 1,) + initial_state.shape
     states = jnp.zeros(state_shape)

@@ -178,7 +178,7 @@ class ReplayBuffer(object):
             self.reward_normalizer.update(self.reward[idx_range])
         self.current_ptr = end % self.max_size
 
-    def sample(self, rng: jax.random.PRNGKeyArray, batch_size: int = 256) -> Transition:
+    def sample(self, rng: jax.Array, batch_size: int = 256) -> Transition:
         ind = jax.random.randint(rng, (batch_size,), 0, self.size)
         obs = jnp.asarray(self.obs)[ind]
         next_state = jnp.asarray(self.next_obs)[ind]
@@ -378,7 +378,7 @@ class JaxReplayBuffer(object):
         )
 
     @functools.partial(jax.jit, static_argnums=(0, 3))
-    def sample(self, rng: jax.random.PRNGKeyArray, state: BufferState, batch_size: int = 256) -> Transition:
+    def sample(self, rng: jax.Array, state: BufferState, batch_size: int = 256) -> Transition:
         ind = jax.random.randint(rng, (batch_size,), 0, state.size)
         sampled_tran = jax.tree_util.tree_map(lambda x: jnp.take(x, ind, axis=0, mode='wrap'), state.tran)
         if self.learn_deltas:

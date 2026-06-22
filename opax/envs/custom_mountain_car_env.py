@@ -1,8 +1,8 @@
-from gym.envs.classic_control.continuous_mountain_car import Continuous_MountainCarEnv
+from gymnasium.envs.classic_control.continuous_mountain_car import Continuous_MountainCarEnv
 from opax.models.environment_models.mountain_car import MountainCarDynamics
 from typing import Optional
 import numpy as np
-from gym.envs.classic_control import utils
+from gymnasium.envs.classic_control import utils
 
 
 class CustomMountainCar(Continuous_MountainCarEnv):
