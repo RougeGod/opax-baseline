@@ -165,7 +165,7 @@ class HUCRLModel(BayesianDynamicsModel):
                  act_dim: int,
                  obs: chex.Array,
                  action: chex.Array,
-                 rng: jax.random.PRNGKeyArray,
+                 rng: jax.Array,
                  num_ensembles: int,
                  beta: float,
                  model_props: ModelProperties = ModelProperties(),
@@ -226,7 +226,7 @@ class HUCRLModel(BayesianDynamicsModel):
             parameters: PyTree,
             obs: chex.Array,
             action: chex.Array,
-            rng: jax.random.PRNGKeyArray,
+            rng: jax.Array,
             model_props: ModelProperties = ModelProperties(),
             sampling_idx: Optional[int] = None,
     ):

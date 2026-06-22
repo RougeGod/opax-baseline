@@ -7,8 +7,8 @@ from copy import deepcopy
 import numpy as np
 from opax.utils.vec_env import VecEnv
 from tqdm import tqdm
-from gym.wrappers.record_video import RecordVideo
-from gym import Env
+from gymnasium.wrappers import RecordVideo
+from gymnasium import Env
 import glob
 from datetime import datetime
 
@@ -150,7 +150,7 @@ class DummyTrainer(object):
         pass
 
     def step_env(self, obs: Union[jax.Array, np.ndarray], policy: Callable, num_steps: int,
-                 rng: jax.random.PRNGKeyArray) -> [Transition, Union[jax.Array, np.ndarray],
+                 rng: jax.Array) -> [Transition, Union[jax.Array, np.ndarray],
                                                    Union[jax.Array, np.ndarray, bool]]:
         """
         Step in the environment starting at initial state obs. Env is not reset.
@@ -197,12 +197,12 @@ class DummyTrainer(object):
         )
         return transitions, last_obs, last_done
 
-    def rollout_policy(self, num_steps: int, policy: Callable, rng: jax.random.PRNGKeyArray) -> Transition:
+    def rollout_policy(self, num_steps: int, policy: Callable, rng: jax.Array) -> Transition:
         """
         rollout a policy in the env. Env is reset before and after the rollout.
         :param num_steps: int, number of steps for rollout
         :param policy: Callable
-        :param rng: jax.random.PRNGKeyArray
+        :param rng: jax.Array
         :return: transition: Transition from rollout
         """
         self.agent.prepare_agent_for_rollout()
@@ -263,7 +263,7 @@ class DummyTrainer(object):
         obs, _ = self.env.reset(seed=reset_seed)
         return transitions
 
-    def eval_policy(self, step: int = 0, rng: Optional[jax.random.PRNGKeyArray] = None) -> dict:
+    def eval_policy(self, step: int = 0, rng: Optional[jax.Array] = None) -> dict:
         """
         Evaluates policy in the environment till it is done.
 

@@ -53,7 +53,7 @@ class DynamicsModel(object):
     def _init_fn(self):
         pass
 
-    def predict(self, obs: chex.Array, action: chex.Array, rng: Optional[jax.random.PRNGKeyArray] = None):
+    def predict(self, obs: chex.Array, action: chex.Array, rng: Optional[jax.Array] = None):
         pass
 
     def predict_raw(self,
@@ -67,7 +67,7 @@ class DynamicsModel(object):
                  parameters: PyTree,
                  obs: chex.Array,
                  action: chex.Array,
-                 rng: jax.random.PRNGKeyArray,
+                 rng: jax.Array,
                  sampling_idx: Optional[chex.Array] = None,
                  model_props: ModelProperties = ModelProperties()
                  ):

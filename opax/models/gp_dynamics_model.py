@@ -4,7 +4,7 @@ import chex
 
 from opax.models.dynamics_model import DynamicsModel, ModelSummary
 from opax.utils.type_aliases import ModelProperties
-import gym
+import gymnasium as gym
 import numpy as np
 from opax.models.reward_model import RewardModel
 import jax.numpy as jnp
@@ -231,7 +231,7 @@ class GPDynamicsModel(DynamicsModel):
                                   act_dim: int,
                                   obs: chex.Array,
                                   action: chex.Array,
-                                  rng: jax.random.PRNGKeyArray,
+                                  rng: jax.Array,
                                   sampling_type: GPSamplingType,
                                   model_props: ModelProperties = ModelProperties(),
                                   pred_diff: bool = 1,
@@ -276,7 +276,7 @@ class GPDynamicsModel(DynamicsModel):
             parameters: PyTree,
             obs: chex.Array,
             action: chex.Array,
-            rng: jax.random.PRNGKeyArray,
+            rng: jax.Array,
             model_props: ModelProperties = ModelProperties(),
             *args,
             **kwargs,
@@ -299,7 +299,7 @@ class GPDynamicsModel(DynamicsModel):
             parameters: PyTree,
             obs: chex.Array,
             action: chex.Array,
-            rng: jax.random.PRNGKeyArray,
+            rng: jax.Array,
             model_props: ModelProperties = ModelProperties(),
             *args,
             **kwargs,
@@ -327,7 +327,7 @@ class GPDynamicsModel(DynamicsModel):
             parameters: PyTree,
             obs: chex.Array,
             action: chex.Array,
-            rng: jax.random.PRNGKeyArray,
+            rng: jax.Array,
             model_props: ModelProperties = ModelProperties(),
             use_log_uncertainties: bool = True,
             *args,

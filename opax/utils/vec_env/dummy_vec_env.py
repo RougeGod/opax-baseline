@@ -52,12 +52,18 @@ class DummyVecEnv(VecEnv):
         self.actions = actions
 
     def step_wait(self) -> VecEnvStepReturn:
+
         for env_idx in range(self.num_envs):
-            obs, self.buf_rews[env_idx], self.buf_dones[env_idx], self.buf_truncates[env_idx], self.buf_infos[env_idx] \
-                = self.envs[env_idx].step(
-                    self.actions[env_idx]
-                )
+            step_value = self.envs[env_idx].step(self.actions[env_idx])
+            obs = step_value[0]
+            #fix a ValueError: setting array element with sequence caused by rewards being an array of lists.
+            self.buf_rews[env_idx] = step_value[1].squeeze() 
+            self.buf_dones[env_idx] = step_value[2]
+            self.buf_truncates[env_idx] = step_value[3]
+            self.buf_infos[env_idx] = step_value[4]
+
             done = np.logical_or(self.buf_dones[env_idx], self.buf_truncates[env_idx])
+
             self._save_obs(env_idx, obs)
             if done:
                 # save final observation after reset.

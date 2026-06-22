@@ -2,7 +2,7 @@ from typing import Sequence, Callable, Optional
 
 import chex
 import numpy as np
-import gym
+import gymnasium as gym
 from flax import linen as nn
 from opax.utils.models import FSVGDEnsemble, ProbabilisticEnsembleModel
 import jax
@@ -30,7 +30,7 @@ class SamplingType:
 
 
 @jax.jit
-def sample(predictions: chex.Array, idx: chex.Array, s_rng: jax.random.PRNGKeyArray):
+def sample(predictions: chex.Array, idx: chex.Array, s_rng: jax.Array):
     """
     :param predictions: (num ensembles, batch size, 2 x dim states)
     :param idx: (1, )
@@ -256,7 +256,7 @@ class BayesianDynamicsModel(DynamicsModel):
                  parameters: PyTree,
                  obs: chex.Array,
                  action: chex.Array,
-                 rng: jax.random.PRNGKeyArray,
+                 rng: jax.Array,
                  sampling_type: SamplingType,
                  num_ensembles: int,
                  sampling_idx: chex.Array,
@@ -268,7 +268,7 @@ class BayesianDynamicsModel(DynamicsModel):
         :param parameters: PyTree, model parameters
         :param obs: chex.Array
         :param action: chex.Array
-        :param rng: jax.random.PRNGKeyArray
+        :param rng: jax.Array
         :param sampling_type: SamplingType
         :param num_ensembles: int
         :param sampling_idx: chex.Array
@@ -426,7 +426,7 @@ class BayesianDynamicsModel(DynamicsModel):
             parameters: PyTree,
             obs: chex.Array,
             action: chex.Array,
-            rng: jax.random.PRNGKeyArray,
+            rng: jax.Array,
             sampling_idx: chex.Array,
             model_props: ModelProperties = ModelProperties()
     ) -> [chex.Array, chex.Array]:

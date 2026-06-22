@@ -1,4 +1,4 @@
-from gym.envs.classic_control.continuous_mountain_car import Continuous_MountainCarEnv
+from gymnasium.envs.classic_control.continuous_mountain_car import Continuous_MountainCarEnv
 from opax.models.dynamics_model import DynamicsModel
 from opax.models.reward_model import RewardModel
 import jax.numpy as jnp
@@ -39,9 +39,9 @@ class MountainCarDynamics(DynamicsModel):
         action = jnp.atleast_2d(action).reshape(-1, 1)
         pos = obs[..., 0]
         velocity = obs[..., 1]
-        force = jnp.clip(action, a_min=-1, a_max=1) * self.env.max_action
+        force = jnp.clip(action, min=-1, max=1) * self.env.max_action
         next_velocity = velocity + force * self.env.power - 0.0025 * jnp.cos(3 * pos)
-        next_velocity = jnp.clip(next_velocity, a_min=-self.env.max_speed, a_max=self.env.max_speed)
+        next_velocity = jnp.clip(next_velocity, min=-self.env.max_speed, max=self.env.max_speed)
         next_position = pos + next_velocity
         next_position = jnp.clip(next_position, self.env.min_position, self.env.max_position)
         out_of_bounds = jnp.logical_and(next_position - self.env.min_position <= 0.0, next_velocity < 0.0)

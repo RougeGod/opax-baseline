@@ -10,7 +10,7 @@ class RewardModel(object):
         pass
 
     def predict(self, obs: chex.Array, action: chex.Array,
-                next_obs: Optional[chex.Array] = None, rng: jax.random.PRNGKeyArray = None) -> chex.Array:
+                next_obs: Optional[chex.Array] = None, rng: jax.Array = None) -> chex.Array:
         pass
 
     def train_step(self, tran: Transition):

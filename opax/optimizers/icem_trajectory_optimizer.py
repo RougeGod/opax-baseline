@@ -409,7 +409,7 @@ class ICemTO(DummyPolicyOptimizer):
                 lambda rng: powerlaw_psd_gaussian(exponent=self.opt_params.exponent, size=opt_size, rng=rng))(
                 sampling_rng)
             action_samples = mu + colored_samples * sig
-            action_samples = jnp.clip(action_samples, a_max=1, a_min=-1)
+            action_samples = jnp.clip(action_samples, max=1, min=-1)
             action_samples = action_samples.reshape((-1,) + self.opt_dim)
             action_samples = jnp.concatenate([action_samples, prev_elites], axis=0)
             values = jax.vmap(sum_rewards)(action_samples)
@@ -457,8 +457,8 @@ class ICemTO(DummyPolicyOptimizer):
             model_index: int,
             dynamics_params: PyTree,
             obs: chex.Array,
-            key: jax.random.PRNGKeyArray = None,
-            optimizer_key: jax.random.PRNGKeyArray = None,
+            key: jax.Array = None,
+            optimizer_key: jax.Array = None,
             model_props: ModelProperties = ModelProperties(),
             initial_actions: Optional[jax.Array] = None,
             sampling_idx: Optional[Union[jnp.ndarray, int]] = None,

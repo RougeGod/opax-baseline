@@ -1,11 +1,11 @@
 """Pendulum Swing-up Environment with full observation."""
-import gym
+import gymnasium as gym
 import numpy as np
 import optax
 
 from opax.models.reward_model import RewardModel
 from opax.models.dynamics_model import DynamicsModel
-from gym.envs.classic_control.pendulum import PendulumEnv, angle_normalize
+from gymnasium.envs.classic_control.pendulum import PendulumEnv, angle_normalize
 import jax.numpy as jnp
 import jax
 from functools import partial

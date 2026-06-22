@@ -181,8 +181,8 @@ class TraJaxTO(DummyPolicyOptimizer):
                                                 optimizer_params: Any = None,
                                                 dynamics_params: Any = None,
                                                 model_props: ModelProperties = ModelProperties(),
-                                                key: Optional[jax.random.PRNGKeyArray] = None,
-                                                opt_key: Optional[jax.random.PRNGKeyArray] = None,
+                                                key: Optional[jax.Array] = None,
+                                                opt_key: Optional[jax.Array] = None,
                                                 sampling_idx: Optional[Union[jnp.ndarray, int]] = None,
                                                 initial_actions: Optional[jax.Array] = None,
                                                 ):
@@ -227,8 +227,8 @@ class TraJaxTO(DummyPolicyOptimizer):
                                                             optimizer_params: Any = None,
                                                             dynamics_params: Any = None,
                                                             model_props: ModelProperties = ModelProperties(),
-                                                            key: Optional[jax.random.PRNGKeyArray] = None,
-                                                            opt_key: Optional[jax.random.PRNGKeyArray] = None,
+                                                            key: Optional[jax.Array] = None,
+                                                            opt_key: Optional[jax.Array] = None,
                                                             sampling_idx: Optional[Union[jnp.ndarray, int]] = None,
                                                             initial_actions: Optional[jax.Array] = None,
                                                             ):

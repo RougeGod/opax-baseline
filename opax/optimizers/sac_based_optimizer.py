@@ -3,7 +3,7 @@ import copy
 import jax.random
 
 from opax.agents.actor_critic.sac import SACAgent, SACTrainingState, soft_update
-from gym.spaces import Box
+from gymnasium.spaces import Box
 from opax.utils.replay_buffer import Transition, ReplayBuffer, JaxReplayBuffer, BufferState
 from typing import Callable, Union, Optional, Any
 import jax.numpy as jnp
@@ -197,7 +197,7 @@ class SACOptimizer(DummyPolicyOptimizer):
     def get_action(self, obs: jax.Array, rng):
         return self.get_action_for_eval(obs=obs, rng=rng, agent_idx=0)
 
-    def get_action_for_exploration(self, obs: jax.Array, rng: jax.random.PRNGKeyArray, *args, **kwargs):
+    def get_action_for_exploration(self, obs: jax.Array, rng: jax.Array, *args, **kwargs):
         policy = self.agent_list[0].get_action
         if self.active_exploration_agent:
             agent_state = get_idx(self.optimizer_state, -1)
@@ -249,7 +249,7 @@ class SACOptimizer(DummyPolicyOptimizer):
 
     @functools.partial(jax.jit, static_argnums=(0, 4, 6, 7, 9, 10, 11))
     def train_single_agent(self,
-                           rng: jax.random.PRNGKeyArray,
+                           rng: jax.Array,
                            true_obs: jax.Array,
                            obs_size: jax.Array,
                            sim_buffer: JaxReplayBuffer,
@@ -391,7 +391,7 @@ class SACOptimizer(DummyPolicyOptimizer):
         return carry[0], trained_state, outs[0], outs[1]
 
     def train(self,
-              rng: jax.random.PRNGKeyArray,
+              rng: jax.Array,
               buffer: ReplayBuffer,
               dynamics_params: Optional = None,
               model_props: ModelProperties = ModelProperties(),

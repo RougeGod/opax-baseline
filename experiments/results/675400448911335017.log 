@@ -1,0 +1,56 @@
+{'action_cost': 0.0,
+ 'action_normalize': True,
+ 'alpha': 0.0,
+ 'batch_size': 128,
+ 'beta': 1.0,
+ 'buffer_size': 1000000,
+ 'deterministic': True,
+ 'discount': 1.0,
+ 'eval_episodes': 1,
+ 'eval_freq': 1,
+ 'exp_name': 'OPAXPLEASEWORK',
+ 'exp_result_folder': './experiments/results',
+ 'exploration_steps': 0,
+ 'exploration_strategy': 'Optimistic',
+ 'hidden_layers': 2,
+ 'horizon': 20,
+ 'logs_dir': './',
+ 'max_train_steps': 5000,
+ 'n_envs': 5,
+ 'n_particles': 10,
+ 'normalize': True,
+ 'num_elites': 50,
+ 'num_ensembles': 5,
+ 'num_epochs': -1,
+ 'num_neurons': 128,
+ 'num_samples': 500,
+ 'num_steps': 15,
+ 'optimizer_type': 'iCemTO',
+ 'pred_diff': True,
+ 'record_test_video': False,
+ 'reset_model': True,
+ 'rollout_steps': 200,
+ 'seed': 834,
+ 'time_limit': 200,
+ 'time_limit_eval': 200,
+ 'total_train_steps': 2500,
+ 'train_freq': 1,
+ 'train_steps': 5000,
+ 'use_al': False,
+ 'use_log': False,
+ 'use_wandb': True,
+ 'validate': True,
+ 'validation_batch_size': 4096,
+ 'validation_buffer_size': 100000}
+
+ ------------------------------------ 
+
+wandb: [wandb.login()] Loaded credentials for https://api.wandb.ai from /home/rougegod/.netrc.
+wandb: Currently logged in as: rougegod (rougegod-uof) to https://api.wandb.ai. Use `wandb login --relogin` to force relogin
+wandb: Tracking run with wandb version 0.27.2
+wandb: Run data is saved locally in wandb/run-20260622_155602-eh17e7ka
+wandb: Run `wandb offline` to turn off syncing.
+wandb: Syncing run balmy-snowball-6
+wandb:  View project at https://wandb.ai/rougegod-uof/OPAXPLEASEWORK
+wandb:  View run at https://wandb.ai/rougegod-uof/OPAXPLEASEWORK/runs/eh17e7ka
+0it [00:00, ?it/s]1it [00:06,  6.91s/it]2it [00:11,  5.79s/it]3it [00:17,  5.47s/it]4it [00:22,  5.39s/it]5it [00:27,  5.36s/it]

@@ -83,7 +83,7 @@ class ModelBasedTrainer(DummyTrainer):
             #                                  )
             self.validation_buffer.add(transitions)
 
-    def validate_model(self, rng: jax.random.PRNGKeyArray) -> dict:
+    def validate_model(self, rng: jax.Array) -> dict:
         """
         Validates learned dynamics model
         :param rng: random key for validation

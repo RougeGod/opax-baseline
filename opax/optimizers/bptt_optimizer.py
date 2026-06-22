@@ -6,7 +6,7 @@ from opax.optimizers.dummy_policy_optimizer import DummyPolicyOptimizer
 from typing import Optional, Any, Sequence, Callable, Union
 import flax
 import optax
-from gym.spaces.box import Box
+from gymnasium.spaces.box import Box
 from opax.models.active_learning_model import ActiveLearningPETSModel, ActiveLearningHUCRLModel
 import jax.random as random
 from copy import deepcopy
@@ -495,7 +495,7 @@ class BPTTOptimizer(DummyPolicyOptimizer):
 
     @functools.partial(jax.jit, static_argnums=(0, 6))
     def train_single_agent(self,
-                           rng: jax.random.PRNGKeyArray,
+                           rng: jax.Array,
                            true_obs: jax.Array,
                            obs_size: jax.Array,
                            bptt_state: BPTTState,

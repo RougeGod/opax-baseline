@@ -1,4 +1,4 @@
-from gym.wrappers import RescaleAction, TimeLimit
+from gymnasium.wrappers import RescaleAction, TimeLimit
 from opax.utils.vec_env.env_util import make_vec_env
 from opax.utils.vec_env.subproc_vec_env import SubprocVecEnv
 from opax.models.environment_models.pendulum_swing_up import PendulumReward, CustomPendulumEnv, PendulumDynamicsModel
