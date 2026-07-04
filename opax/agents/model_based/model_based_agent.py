@@ -2,9 +2,6 @@ import jax
 import math
 
 from opax.models.dynamics_model import DynamicsModel
-from opax.optimizers.cem_trajectory_optimizer import CemTO
-from opax.optimizers.trajax_trajectory_optimizer import TraJaxTO
-from opax.optimizers.sac_based_optimizer import SACOptimizer
 from opax.optimizers.icem_trajectory_optimizer import ICemTO
 import gymnasium as gym
 from opax.utils.replay_buffer import ReplayBuffer, Transition
@@ -73,31 +70,8 @@ class ModelBasedAgent(DummyAgent):
         action_dim = self.action_space.shape
         if isinstance(self.dynamics_model, HUCRLModel) or isinstance(self.dynamics_model, GPDynamicsModel):
             action_dim = (self.action_space.shape[0] + self.observation_space.shape[0], )
-        if policy_optimizer_name == "CemTO":
-            self.policy_optimizer = CemTO(
-                dynamics_model_list=self.dynamics_model_list,
-                horizon=horizon,
-                action_dim=action_dim,
-                n_particles=n_particles,
-                **optimizer_kwargs,
-            )
-        elif policy_optimizer_name == "TraJaxTO":
-            self.policy_optimizer = TraJaxTO(
-                dynamics_model_list=self.dynamics_model_list,
-                horizon=horizon,
-                action_dim=action_dim,
-                n_particles=n_particles,
-                **optimizer_kwargs,
-            )
-        elif policy_optimizer_name == "SacOpt":
-            self.policy_optimizer = SACOptimizer(
-                dynamics_model_list=self.dynamics_model_list,
-                horizon=horizon,
-                action_dim=action_dim,
-                **optimizer_kwargs,
-            )
-        elif policy_optimizer_name == 'iCemTO':
-            self.policy_optimizer = ICemTO(
+        assert policy_optimizer_name == 'iCemTO'
+        self.policy_optimizer = ICemTO(
                 dynamics_model_list=self.dynamics_model_list,
                 horizon=horizon,
                 n_particles=n_particles,
@@ -150,47 +124,39 @@ class ModelBasedAgent(DummyAgent):
         self.step = jax.jit(step)
 
     def act_in_jax(self, obs: jax.Array, rng: jax.Array, eval: bool = False, eval_idx: int = 0):
-        # forward pass through policy if policy optimizer is SAC
-        if isinstance(self.policy_optimizer, SACOptimizer):
-            if eval:
-                action = self.policy_optimizer.get_action_for_eval(obs=obs, rng=rng, agent_idx=eval_idx)
-            else:
-                action = self.policy_optimizer.get_action_for_exploration(obs=obs, rng=rng)
-            action = action[..., :self.action_space.shape[0]]
+        # optimize for actions and take the first best one --> MPC
+        if eval:
+            dim_state = obs.shape[-1]
+            obs = obs.reshape(-1, dim_state)
+            n_envs = obs.shape[0]
+            rollout_rng, optimizer_rng = jax.random.split(rng, 2)
+            rollout_rng = jax.random.split(rollout_rng, n_envs)
+            optimizer_rng = jax.random.split(optimizer_rng, n_envs)
+            optimize_fn = self.policy_optimizer.optimize_for_eval_fns[eval_idx]
+            action_sequence, best_reward = optimize_fn(
+                dynamics_params=self.dynamics_model.model_params,
+                obs=obs,
+                key=rollout_rng,
+                optimizer_key=optimizer_rng,
+                model_props=self.dynamics_model.model_props,
+            )
+            action = action_sequence[:, 0, ...]
+            if action.shape[0] == 1:
+                action = action.squeeze(0)
         else:
-            # optimize for actions and take the first best one --> MPC
-            if eval:
-                dim_state = obs.shape[-1]
-                obs = obs.reshape(-1, dim_state)
-                n_envs = obs.shape[0]
-                rollout_rng, optimizer_rng = jax.random.split(rng, 2)
-                rollout_rng = jax.random.split(rollout_rng, n_envs)
-                optimizer_rng = jax.random.split(optimizer_rng, n_envs)
-                optimize_fn = self.policy_optimizer.optimize_for_eval_fns[eval_idx]
-                action_sequence, best_reward = optimize_fn(
+            n_envs = obs.shape[0]
+            rollout_rng, optimizer_rng = jax.random.split(rng, 2)
+            rollout_rng = jax.random.split(rollout_rng, n_envs)
+            optimizer_rng = jax.random.split(optimizer_rng, n_envs)
+            action_sequence, best_reward = self.policy_optimizer.optimize_for_exploration(
                     dynamics_params=self.dynamics_model.model_params,
                     obs=obs,
                     key=rollout_rng,
                     optimizer_key=optimizer_rng,
                     model_props=self.dynamics_model.model_props,
                 )
-                action = action_sequence[:, 0, ...]
-                if action.shape[0] == 1:
-                    action = action.squeeze(0)
-            else:
-                n_envs = obs.shape[0]
-                rollout_rng, optimizer_rng = jax.random.split(rng, 2)
-                rollout_rng = jax.random.split(rollout_rng, n_envs)
-                optimizer_rng = jax.random.split(optimizer_rng, n_envs)
-                action_sequence, best_reward = self.policy_optimizer.optimize_for_exploration(
-                        dynamics_params=self.dynamics_model.model_params,
-                        obs=obs,
-                        key=rollout_rng,
-                        optimizer_key=optimizer_rng,
-                        model_props=self.dynamics_model.model_props,
-                    )
-                action = action_sequence[:, 0, ...]
-            action = action[..., :self.action_space.shape[0]]
+            action = action_sequence[:, 0, ...]
+        action = action[..., :self.action_space.shape[0]]
         return action
 
     def train_step(self,
