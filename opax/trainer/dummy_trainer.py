@@ -10,7 +10,9 @@ from tqdm import tqdm
 from gymnasium.wrappers import RecordVideo
 from gymnasium import Env
 import glob
+import orbax.checkpoint as ocp
 from datetime import datetime
+import os
 
 
 # TODO learn deltas, validate_agent should only be used by model based agent.
@@ -31,6 +33,8 @@ class DummyTrainer(object):
     use_wandb: bool, boolean to indicated logging in wandb
     validate: bool, boolean to indicate policy validation (generally only used for model based RL)
     normalize: bool, boolean to indicate if data is normalized or not
+    agent_save_loc: str, location to save the agent checkpoint
+    agent_load_loc: str, location to load the agent checkpoint from
     action_normalize: bool, boolean to indicate if actions should be normalized
     learn_deltas: bool, boolean to indicate if model learns a delta
     record_test_video: bool, boolean to indicate if video should be recorded for model evaluation
@@ -54,8 +58,10 @@ class DummyTrainer(object):
                  use_wandb: bool = True,
                  validate: bool = False,
                  normalize: bool = False,
+                 agent_save_loc: str = None,
+                 agent_load_loc: str = None,
                  action_normalize: bool = False,
-                 learn_deltas: bool = False,
+                 learn_deltas: bool = True,
                  record_test_video: bool = False,
                  video_prefix: str = "",
                  video_folder: str = "./",
@@ -78,6 +84,8 @@ class DummyTrainer(object):
         self.rng = jax.random.PRNGKey(seed)
         self.use_wandb = use_wandb
         self.validate = validate
+        self.agent_save_loc = agent_save_loc
+        self.agent_load_loc = agent_load_loc
         self.total_train_steps = total_train_steps
         self.train_freq = train_freq
         self.eval_freq = eval_freq
@@ -88,6 +96,9 @@ class DummyTrainer(object):
         dt_string = now.strftime("%d_%m_%Y_%H_%M_%S")
         self.video_dir_name = video_folder + 'video' + str(seed) + video_prefix + dt_string
         self.record_test_video = record_test_video
+
+        if self.agent_load_loc is not None:
+            self.load_agent(self.agent_load_loc)
 
         # wraps test environment with recordvideo wraper if record_test_video is true
         def get_test_env_wrapper(env_num):
@@ -141,13 +152,55 @@ class DummyTrainer(object):
     def train(self):
         pass
 
-    def save_agent(self, step=0, agent_name=None):
-        # TODO implement this function
-        pass
+    def save_agent(self, step: int = 0, agent_name: Optional[str] = None):
+        """Saves the agent PyTree state using Orbax."""
+        if self.agent_save_loc is None:
+            return
+
+        name = agent_name if agent_name is not None else f"step_{step}"
+        save_path = os.path.abspath(os.path.join(self.agent_save_loc, name))
+        os.makedirs(self.agent_save_loc, exist_ok=True)
+
+        if hasattr(self.agent, "dynamics_model_list"):
+            state = {
+                "model_params": [model.model_params for model in self.agent.dynamics_model_list],
+                "model_opt_state": [model.model_opt_state for model in self.agent.dynamics_model_list],
+                "model_props": [model.model_props for model in self.agent.dynamics_model_list],
+                "update_steps": getattr(self.agent, "update_steps", 0),
+            }
+            checkpointer = ocp.PyTreeCheckpointer()
+            checkpointer.save(save_path, state, force=True)
+        else:
+            raise NotImplementedError("save_agent is currently only implemented for ModelBasedAgent.")
 
     def load_agent(self, agent_directory: str):
-        # TODO implement this function
-        pass
+        """Loads the agent PyTree state using Orbax."""
+        if not os.path.exists(agent_directory):
+            raise FileNotFoundError(f"Agent checkpoint directory {agent_directory} does not exist.")
+
+        if hasattr(self.agent, "dynamics_model_list"):
+            target_state = {
+                "model_params": [model.model_params for model in self.agent.dynamics_model_list],
+                "model_opt_state": [model.model_opt_state for model in self.agent.dynamics_model_list],
+                "model_props": [model.model_props for model in self.agent.dynamics_model_list],
+                "update_steps": getattr(self.agent, "update_steps", 0),
+            }
+            checkpointer = ocp.PyTreeCheckpointer()
+            restored = checkpointer.restore(agent_directory, item=target_state)
+
+            for i, model in enumerate(self.agent.dynamics_model_list):
+                alpha = getattr(restored["model_props"][i], "alpha", 1.0)
+                model.update_model(
+                    model_params=restored["model_params"][i],
+                    model_opt_state=restored["model_opt_state"][i],
+                    alpha=alpha,
+                )
+                model.model_props = restored["model_props"][i]
+
+            if "update_steps" in restored:
+                self.agent.update_steps = restored["update_steps"]
+        else:
+            raise NotImplementedError("load_agent is currently only implemented for ModelBasedAgent.")
 
     def step_env(self, obs: Union[jax.Array, np.ndarray], policy: Callable, num_steps: int,
                  rng: jax.Array) -> [Transition, Union[jax.Array, np.ndarray],

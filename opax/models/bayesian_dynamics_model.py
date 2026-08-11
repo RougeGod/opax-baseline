@@ -16,6 +16,8 @@ from typing import List, Union
 from opax.utils.utils import gaussian_log_likelihood
 from opax.utils.network_utils import mse
 from jaxtyping import PyTree
+from opax.utils.ground_truth import sample_validation_batch, generate_validation_data
+import gymnax
 
 class SamplingType:
     name: str = 'TS1'
@@ -247,7 +249,8 @@ class BayesianDynamicsModel(DynamicsModel):
         next_obs_tot = predict_fn(parameters, obs_action)
         mean, std = jnp.split(next_obs_tot, 2, axis=-1)
         # unnormalize predictions
-        next_obs_mean = mean * scale_out + bias_out + pred_diff * obs
+        next_obs_mean = mean * scale_out + bias_out + pred_diff * obs 
+        #pred_diff + obs turns this back into a predicted observation instead of a delta
         next_obs_std = std * scale_out
         return next_obs_mean, next_obs_std
 
@@ -446,3 +449,25 @@ class BayesianDynamicsModel(DynamicsModel):
         )
         reward = reward_fn(obs, action, next_obs, reward_rng)
         return next_obs, reward
+    
+    def get_dynamics_mae(self, rng, env_name="Pendulum-v1"):   
+        env, env_params = gymnax.make(env_name) 
+        random_sa_pair_batch = sample_validation_batch(rng, env, env_params, env_name, 1000)
+                            #1 is the observation, 4 is the action
+        #these Transition objects are only used in the predict_raw method and therefore don't need
+        #reward, nex_tobs, or dones, fill those with zeros
+        random_transitions = Transition(random_sa_pair_batch[1], random_sa_pair_batch[4], 
+                                        jnp.zeros_like(random_sa_pair_batch[1]), 
+                                        jnp.zeros_like(random_sa_pair_batch[1]), 
+                                        jnp.zeros_like(random_sa_pair_batch[1]))
+        #query the actual environment to get its dynamics (observation, action, delta_next_obs, reward, terminated)
+        ground_truth_dynamics = generate_validation_data(env, env_params, "Pendulum-v1", batch=random_sa_pair_batch)
+        
+        mean_next_obs, std_next_obs = self.predict_raw(parameters=self.dynamics_model.model_params,
+                                                       tran=random_transitions,
+                                                       rng=rng)
+        mean_delta_next_obs = (random_sa_pair_batch[1] - mean_next_obs)
+        return jnp.mean(jnp.abs(ground_truth_dynamics[3] - mean_delta_next_obs))
+        
+
+        

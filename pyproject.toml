@@ -27,12 +27,14 @@ dependencies = [
     "pandas>2.1.0",
     "gpjax",
     "dm_control>=1.0.10",
-    "trajax @ git+ssh://git@github.com/lenarttreven/trajax.git",
+    "gymnax",
+    #"trajax @ git+ssh://git@github.com/lenarttreven/trajax.git",
     "jaxtyping~=0.2.28",
     "moviepy",
     "chex>=0.1.92",
     "weave>=0.52.43",
     "py-spy>=0.4.2",
+    "orbax>=0.1.9",
 ]
 
 [project.optional-dependencies]

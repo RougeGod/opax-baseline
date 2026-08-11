@@ -38,7 +38,7 @@ class ModelSummary:
 class DynamicsModel(object):
     def __init__(self,
                  model_props: ModelProperties = ModelProperties(),
-                 pred_diff: bool = False,
+                 pred_diff: bool = True,
                  *args,
                  **kwargs
                  ):

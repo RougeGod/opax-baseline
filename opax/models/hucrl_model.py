@@ -184,7 +184,7 @@ class HUCRLModel(BayesianDynamicsModel):
         act, eta = jnp.split(action, axis=-1, indices_or_sections=[act_dim])
         transformed_obs = (obs - bias_obs) / scale_obs
         transformed_act = (act - bias_act) / scale_act
-        obs_action = jnp.concatenate([transformed_obs, transformed_act], axis=-1)
+        obs_action = jnp.concatenate([transformed_obs, transformed_act], axis=-1) #normalized obs/action concatenation
         next_obs_tot = predict_fn(parameters, obs_action)
         mean, std = jnp.split(next_obs_tot, 2, axis=-1)
 

@@ -49,7 +49,7 @@ class ModelBasedTrainer(DummyTrainer):
                 action_shape=self.buffer.action_shape,
                 normalize=False,
                 action_normalize=False,
-                learn_deltas=False
+                learn_deltas=True
             )
             num_points = int(validation_buffer_size * self.num_envs)
             obs_shape = (num_points,) + self.env.observation_space.shape
@@ -227,6 +227,7 @@ class ModelBasedTrainer(DummyTrainer):
                 if reward_log['reward_task_0'] > best_performance:
                     best_performance = reward_log['reward_task_0']
                     self.save_agent(step)
+                wandb.log(self.agent.dynamics_model.get_dynamics_mae(rng=jax.random.PRNGKey(37)))
             if self.use_wandb:
                 train_log = env_step_log
                 train_log.update(train_step_log)

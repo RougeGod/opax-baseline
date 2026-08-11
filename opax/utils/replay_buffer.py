@@ -126,7 +126,7 @@ class ReplayBuffer(object):
                  max_size: int = int(1e6),
                  normalize: bool = False,
                  action_normalize: bool = False,
-                 learn_deltas: bool = False
+                 learn_deltas: bool = True
                  ):
         self.max_size = max_size
         self.current_ptr = 0
@@ -295,7 +295,7 @@ class JaxReplayBuffer(object):
                  max_size: int = int(1e6),
                  normalize: bool = False,
                  action_normalize: bool = False,
-                 learn_deltas: bool = False,
+                 learn_deltas: bool = True,
                  *args,
                  **kwargs,
                  ):

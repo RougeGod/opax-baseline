@@ -251,35 +251,6 @@ class ModelBasedAgent(DummyAgent):
             if self.calibrate_model:
                 alpha = carry[1]
         self.update_models(model_params=model_params, model_opt_state=model_opt_state, alpha=alpha)
-        # train policy if SAC optimizer is used.
-        if isinstance(self.policy_optimizer, SACOptimizer):
-            if buffer.size > self.policy_optimizer.transitions_per_update:
-                train_rng = carry[0]
-                policy_train_rng, train_rng = jax.random.split(train_rng, 2)
-                policy_agent_train_summary, policy_train_rewards = self.policy_optimizer.train(
-                    rng=policy_train_rng,
-                    buffer=buffer,
-                    dynamics_params=model_params,
-                    model_props=self.dynamics_model.model_props,
-                    reset_agent=self.reset_agent_params,
-                )
-                if log_results and self.log_agent_training:
-                    # for j in range(self.policy_optimizer.train_steps_per_model_update):
-                    for i in range(len(self.policy_optimizer.agent_list)):
-                        summary = policy_agent_train_summary[i]
-                        summary_dict = summary.dict()
-                        summary_relabeled_dict = {}
-                        for key, value in summary_dict.items():
-                            summary_relabeled_dict[key + '_agent_' + str(i)] = value
-                        wandb.log(
-                            summary_relabeled_dict
-                        )
-                        reward_dict = {}
-                        for reward in policy_train_rewards[i]:
-                            reward_dict['sac_reward_agent_' + str(i)] = reward.item()
-                            wandb.log(
-                                reward_dict
-                            )
         return total_train_steps
 
     def set_transforms(self,
