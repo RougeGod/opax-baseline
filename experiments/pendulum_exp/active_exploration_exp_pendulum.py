@@ -18,7 +18,7 @@ from typing import Optional
 
 
 def experiment(logs_dir: str, use_wandb: bool, exp_name: str, time_limit: int, n_envs: int,
-               optimizer_type: str,
+               optimizer_type: str, agent_save_loc: Optional[str], agent_load_loc: Optional[str],
                num_samples: int, num_elites: int, num_steps: int, horizon: int, n_particles: int, reset_model: bool,
                num_ensembles: int, hidden_layers: int, num_neurons: int, beta: float, deterministic: bool,
                max_train_steps: int, pred_diff: bool, batch_size: int, eval_freq: int, total_train_steps: int,
@@ -235,6 +235,8 @@ def experiment(logs_dir: str, use_wandb: bool, exp_name: str, time_limit: int, n
         total_train_steps=total_train_steps,
         exploration_steps=exploration_steps,
         use_wandb=USE_WANDB,
+        agent_save_loc=agent_save_loc,
+        agent_load_loc=agent_load_loc,
         eval_episodes=eval_episodes,
         eval_freq=eval_freq,
         train_freq=train_freq,
@@ -296,6 +298,8 @@ def main(args):
         time_limit=args.time_limit,
         n_envs=args.n_envs,
         optimizer_type=args.optimizer_type,
+        agent_save_loc=args.agent_save_loc,
+        agent_load_loc=args.agent_load_loc,
         num_samples=args.num_samples,
         num_elites=args.num_elites,
         num_steps=args.num_steps,
@@ -359,6 +363,8 @@ if __name__ == '__main__':
     parser.add_argument('--exp_name', type=str, required=True, default='active_exploration')
     parser.add_argument('--logs_dir', type=str, default='./')
     parser.add_argument('--use_wandb', default=False, action="store_true")
+    parser.add_argument('--agent_save_loc', type=str, default=None) #if left as none, don't save agent
+    parser.add_argument('--agent_load_loc', type=str, default=None) #if left as none, make new agent
     # env experiment args
     parser.add_argument('--time_limit', type=int, default=200)
     parser.add_argument('--n_envs', type=int, default=5)

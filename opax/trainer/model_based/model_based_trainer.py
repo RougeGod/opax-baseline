@@ -157,6 +157,7 @@ class ModelBasedTrainer(DummyTrainer):
             wandb.define_metric("train_steps")
             reward_log.update(model_log)
             wandb.log(reward_log)
+            wandb.log(self.agent.dynamics_model.get_dynamics_mae(rng=jax.random.PRNGKey(37)))
 
         # returns policy used for random exploration
         exploration_policy = lambda x, y: np.concatenate([self.env.action_space.sample().reshape(1, -1)
@@ -227,7 +228,7 @@ class ModelBasedTrainer(DummyTrainer):
                 if reward_log['reward_task_0'] > best_performance:
                     best_performance = reward_log['reward_task_0']
                     self.save_agent(step)
-                wandb.log(self.agent.dynamics_model.get_dynamics_mae(rng=jax.random.PRNGKey(37)))
+
             if self.use_wandb:
                 train_log = env_step_log
                 train_log.update(train_step_log)
@@ -244,6 +245,7 @@ class ModelBasedTrainer(DummyTrainer):
                 # }
                 train_log.update(scalar_dict)
                 wandb.log(train_log)
+                wandb.log(self.agent.dynamics_model.get_dynamics_mae(rng=jax.random.PRNGKey(37)))
             # step += 1
         self.save_agent(step, agent_name="final_agent")
 

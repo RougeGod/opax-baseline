@@ -455,7 +455,7 @@ class BayesianDynamicsModel(DynamicsModel):
         random_sa_pair_batch = sample_validation_batch(rng, env, env_params, env_name, 1000)
                             #1 is the observation, 4 is the action
         #these Transition objects are only used in the predict_raw method and therefore don't need
-        #reward, nex_tobs, or dones, fill those with zeros
+        #reward, next_obs, or dones, fill those with zeros
         random_transitions = Transition(random_sa_pair_batch[1], random_sa_pair_batch[4], 
                                         jnp.zeros_like(random_sa_pair_batch[1]), 
                                         jnp.zeros_like(random_sa_pair_batch[1]), 
@@ -463,11 +463,15 @@ class BayesianDynamicsModel(DynamicsModel):
         #query the actual environment to get its dynamics (observation, action, delta_next_obs, reward, terminated)
         ground_truth_dynamics = generate_validation_data(env, env_params, "Pendulum-v1", batch=random_sa_pair_batch)
         
-        mean_next_obs, std_next_obs = self.predict_raw(parameters=self.dynamics_model.model_params,
+        mean_next_obs, std_next_obs = self.predict_raw(parameters=self.model_params,
                                                        tran=random_transitions,
-                                                       rng=rng)
-        mean_delta_next_obs = (random_sa_pair_batch[1] - mean_next_obs)
-        return jnp.mean(jnp.abs(ground_truth_dynamics[3] - mean_delta_next_obs))
+                                                       model_props=self.model_props
+                                                       )
+        #predict_raw gives the prediction of the next state, turn that into a delta
+        mean_delta_next_obs = mean_next_obs - random_sa_pair_batch[1]
+        #get mean of dynamics error over dimensions and return it as a dictionary for wandb
+        dynamics_mae = jnp.mean(jnp.abs(ground_truth_dynamics[2] - mean_delta_next_obs))
+        return {"dynamics_mae": dynamics_mae}
         
 
         
