@@ -1,5 +1,6 @@
 import jax
-from opax.utils.replay_buffer import Transition, ReplayBuffer
+from opax.utils.replay_buffer import Transition, BufferState
+from opax.utils.replay_buffer import JaxReplayBuffer as ReplayBuffer
 from opax.agents.dummy_agent import DummyAgent
 from typing import Callable, Optional, Union
 import wandb
@@ -78,6 +79,8 @@ class DummyTrainer(object):
             learn_deltas=learn_deltas
         )
         self.buffer_size = buffer_size
+        
+        self.buffer_state = self.buffer.initialize_buffer_state()
 
         self.eval_episodes = eval_episodes
         self.agent_name = agent_name

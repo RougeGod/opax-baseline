@@ -222,12 +222,12 @@ class ModelBasedAgent(DummyAgent):
 
             for i in range(train_loops):
                 train_rng, rng = jax.random.split(rng, 2)
-                transitions = buffer.sample(train_rng, batch_size=int(self.batch_size * train_steps))
+                transitions = buffer.sample(train_rng, self.buffer_state, batch_size=int(self.batch_size * train_steps))
                 transitions = transitions.reshape(train_steps, self.batch_size)
                 val_transitions = None
                 if validate:
                     train_rng, val_rng = jax.random.split(train_rng, 2)
-                    val_transitions = buffer.sample(val_rng, batch_size=int(self.batch_size * train_steps))
+                    val_transitions = buffer.sample(val_rng, self.buffer_state, batch_size=int(self.batch_size * train_steps))
                     val_transitions = val_transitions.reshape(train_steps, self.batch_size)
                 carry = [
                     train_rng,
