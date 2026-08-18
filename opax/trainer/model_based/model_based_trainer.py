@@ -85,7 +85,7 @@ class ModelBasedTrainer(DummyTrainer):
             #                                  policy,
             #                                  val_rng
             #                                  )
-            self.validation_buffer.add(transitions, self.validation_buffer_state)
+            self.validation_buffer_state = self.validation_buffer.add(transitions, self.validation_buffer_state)
 
     def validate_model(self, rng: jax.Array) -> dict:
         """
@@ -140,12 +140,12 @@ class ModelBasedTrainer(DummyTrainer):
         eval_rng, curr_eval = random.split(eval_rng, 2)
 
         self.agent.set_transforms(
-            bias_obs=self.buffer.state_normalizer.mean,
-            bias_act=self.buffer.action_normalizer.mean,
-            bias_out=self.buffer.next_state_normalizer.mean,
-            scale_obs=self.buffer.state_normalizer.std,
-            scale_act=self.buffer.action_normalizer.std,
-            scale_out=self.buffer.next_state_normalizer.std,
+                bias_obs=self.buffer_state.state_normalizer_state.mean,
+                bias_act=self.buffer_state.action_normalizer_state.mean,
+                bias_out=self.buffer_state.next_state_normalizer_state.mean,
+                scale_obs=self.buffer_state.state_normalizer_state.std,
+                scale_act=self.buffer_state.action_normalizer_state.std,
+                scale_out=self.buffer_state.next_state_normalizer_state.std,
         )
         curr_eval, eval_val_rng = jax.random.split(curr_eval, 2)
         model_log = self.validate_model(eval_val_rng)
@@ -196,12 +196,12 @@ class ModelBasedTrainer(DummyTrainer):
             transitions, obs, done = self.step_env(obs, policy, self.rollout_steps, actor_rng)
             self.buffer_state = self.buffer.add(transitions, self.buffer_state)
             self.agent.set_transforms(
-                bias_obs=self.buffer.state_normalizer.mean,
-                bias_act=self.buffer.action_normalizer.mean,
-                bias_out=self.buffer.next_state_normalizer.mean,
-                scale_obs=self.buffer.state_normalizer.std,
-                scale_act=self.buffer.action_normalizer.std,
-                scale_out=self.buffer.next_state_normalizer.std,
+                bias_obs=self.buffer_state.state_normalizer_state.mean,
+                bias_act=self.buffer_state.action_normalizer_state.mean,
+                bias_out=self.buffer_state.next_state_normalizer_state.mean,
+                scale_obs=self.buffer_state.state_normalizer_state.std,
+                scale_act=self.buffer_state.action_normalizer_state.std,
+                scale_out=self.buffer_state.next_state_normalizer_state.std,
             )
             self.agent.update_posterior(self.buffer)
             reward_log = {}

@@ -248,6 +248,7 @@ class JaxNormalizer:
             std=std,
             size=size,
         )
+        
 
     @staticmethod
     @jax.jit
@@ -340,6 +341,16 @@ class JaxReplayBuffer(object):
     @functools.partial(jax.jit, static_argnums=0)
     def add(self, transition: Transition, state: BufferState) -> BufferState:
         """Add new transition to the buffer"""
+        # reward/done are stored as (max_size, 1); callers (e.g. step_env,
+        # collect_validation_data) build them as (N,), so reshape here to
+        # match tran's rank before the tree_map below.
+        transition = Transition(
+            obs=transition.obs,
+            action=transition.action,
+            next_obs=transition.next_obs,
+            reward=transition.reward.reshape(-1, 1),
+            done=transition.done.reshape(-1, 1),
+        )
         size = transition.shape[0]
         start = state.current_ptr
         roll = jnp.minimum(0, self.max_size - start - size)
@@ -350,7 +361,6 @@ class JaxReplayBuffer(object):
         new_tran = jax.tree_util.tree_map(lambda x, y: update_fn(x, y), tran, transition)
         current_ptr = (position + size) % self.max_size  # end % self.max_size
         size = jnp.minimum(state.size + size, self.max_size)
-
         state_normalizer_state = state.state_normalizer_state
         action_normalizer_state = state.action_normalizer_state
         reward_normalizer_state = state.reward_normalizer_state
