@@ -98,16 +98,19 @@ class DynamicsModel(object):
     def init_model_opt_state(self):
         return None
 
-    def update_model(self, model_params: PyTree, model_opt_state: PyTree, alpha: Union[float, chex.Array]):
+    @staticmethod
+    @jax.jit
+    def update_model(model_params: PyTree, model_opt_state: PyTree, alpha: Union[float, chex.Array],
+                     model_props: ModelProperties) -> ModelProperties:
         # update model params and properties
         alpha = convert_to_jax(alpha)
-        bias_obs = self.model_props.bias_obs
-        bias_act = self.model_props.bias_act
-        bias_out = self.model_props.bias_out
-        scale_obs = self.model_props.scale_obs
-        scale_act = self.model_props.scale_act
-        scale_out = self.model_props.scale_out
-        self.model_props = ModelProperties(
+        bias_obs = model_props.bias_obs
+        bias_act = model_props.bias_act
+        bias_out = model_props.bias_out
+        scale_obs = model_props.scale_obs
+        scale_act = model_props.scale_act
+        scale_out = model_props.scale_out
+        new_model_props = ModelProperties(
             bias_obs=bias_obs,
             bias_act=bias_act,
             bias_out=bias_out,
@@ -116,7 +119,7 @@ class DynamicsModel(object):
             scale_out=scale_out,
             alpha=alpha,
         )
-        pass
+        return new_model_props
 
     def set_transforms(self,
                        bias_obs: Union[jnp.ndarray, float] = 0.0,

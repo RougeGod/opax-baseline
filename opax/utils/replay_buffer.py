@@ -319,7 +319,7 @@ class JaxReplayBuffer(object):
         action = jnp.zeros((self.max_size, *self.action_shape))
         next_obs = jnp.zeros((self.max_size, *self.obs_shape))
         reward = jnp.zeros((self.max_size, 1))
-        done = jnp.zeros((self.max_size, 1))
+        done = jnp.zeros((self.max_size, 1), dtype=jnp.bool_)
         tran = Transition(
             obs=obs,
             action=action,

@@ -13,7 +13,7 @@ class DummyAgent(object):
         self.batch_size = batch_size
         self.num_epochs = num_epochs
         self.max_train_steps = max_train_steps
-        self.act_in_train = lambda obs, rng: self.act(obs, rng, eval=False)
+        self.act_in_train = lambda obs, rng: self.act_in_jax(obs, rng, eval=False)
         pass
 
     def act(self, obs: np.ndarray, rng=None, eval: bool = False, eval_idx: int = 0):

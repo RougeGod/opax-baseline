@@ -53,13 +53,28 @@ class GymnaxPendulumVecEnv:
         obs_np = np.asarray(obs)
         return obs_np, [{} for _ in range(self.num_envs)]
 
-    def step(self, action: np.ndarray):
+    def pure_step(self, rng: jax.Array, env_state, action: jnp.ndarray):
+        """Pure, jittable single-call step: no ``self`` mutation, no NumPy
+        conversion. Safe to use inside ``jax.lax.scan``/``jax.jit`` (e.g. from
+        ``dummy_trainer.step_env``), unlike ``step`` below which owns/mutates
+        ``self.rng``/``self._state`` and crosses back to NumPy.
+
+        :param rng: jax.Array, single rng key for this step (split internally
+            across ``num_envs`), mirroring how ``step`` derives its own keys.
+        :param env_state: gymnax EnvState pytree, batched over ``num_envs``.
+        :param action: array shaped (num_envs, *action_shape), in [-1, 1].
+        :return: next_obs, next_state, reward, done
+        """
         scaled_action = self._rescale_action(action)
-        self.rng, step_rng = jax.random.split(self.rng)
-        step_keys = jax.random.split(step_rng, self.num_envs)
+        step_keys = jax.random.split(rng, self.num_envs)
         next_obs, next_state, reward, done, _ = self._step_fn(
-            step_keys, self._state, scaled_action, self.env_params
+            step_keys, env_state, scaled_action, self.env_params
         )
+        return next_obs, next_state, reward, done
+
+    def step(self, action: np.ndarray):
+        self.rng, step_rng = jax.random.split(self.rng)
+        next_obs, next_state, reward, done = self.pure_step(step_rng, self._state, action)
         self._state = next_state
 
         next_obs_np = np.asarray(next_obs)

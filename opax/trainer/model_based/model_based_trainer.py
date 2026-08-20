@@ -62,7 +62,7 @@ class ModelBasedTrainer(DummyTrainer):
             action_vec = np.zeros(action_space)
             reward_vec = np.zeros((num_points,))
             next_obs_vec = np.zeros(obs_shape)
-            done_vec = np.zeros((num_points,))
+            done_vec = np.zeros((num_points,), dtype=bool)
             for step in range(validation_buffer_size):
                 obs = self.env.observation_space.sample()
                 action = self.env.action_space.sample()
@@ -166,8 +166,8 @@ class ModelBasedTrainer(DummyTrainer):
             wandb.log(self.agent.dynamics_model.get_dynamics_mae(rng=self.rng))
 
         # returns policy used for random exploration
-        exploration_policy = lambda x, y: np.concatenate([self.env.action_space.sample().reshape(1, -1)
-                                                          for s in range(self.num_envs)], axis=0)
+        #may need to be changed based on the env but I think the actions are always clipped to [-1,1] for normalization?
+        exploration_policy = lambda x, y: jax.random.uniform(self.rng, self.action_shape, minval=-1.0, maxval=1.0)
         # collect data with the random policy
         policy = exploration_policy
         self.rng, explore_rng = random.split(self.rng, 2)
@@ -189,6 +189,7 @@ class ModelBasedTrainer(DummyTrainer):
         obs, _ = self.env.reset(seed=reset_seed)
         step = 0
         for step in tqdm(range(learning_steps)):
+            
             # collect rollouts with policy
             actor_rng, train_rng = random.split(rng_keys[step], 2)
             policy = self.agent.act_in_train if not self.uniform_exploration else exploration_policy
@@ -212,11 +213,12 @@ class ModelBasedTrainer(DummyTrainer):
                 'learning_step': step,
             }
             # update agent
-            if step % self.train_freq == 0 and (self.buffer.size >= self.agent.batch_size or self.agent.is_gp):
+            if step % self.train_freq == 0 and (self.buffer_state.size >= self.agent.batch_size or self.agent.is_gp):
                 train_rng, agent_rng = random.split(train_rng, 2)
                 total_train_steps = self.agent.train_step(
                     rng=agent_rng,
                     buffer=self.buffer,
+                    buffer_state=self.buffer_state,
                     validate=self.validate,
                     log_results=self.use_wandb,
                 )

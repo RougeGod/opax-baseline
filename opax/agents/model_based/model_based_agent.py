@@ -4,7 +4,8 @@ import math
 from opax.models.dynamics_model import DynamicsModel
 from opax.optimizers.icem_trajectory_optimizer import ICemTO
 import gymnasium as gym
-from opax.utils.replay_buffer import ReplayBuffer, Transition
+from opax.utils.replay_buffer import Transition, BufferState
+from opax.utils.replay_buffer import JaxReplayBuffer as ReplayBuffer
 from opax.utils.utils import get_idx
 from opax.agents.dummy_agent import DummyAgent
 import jax.numpy as jnp
@@ -84,6 +85,7 @@ class ModelBasedAgent(DummyAgent):
         self.calibrate_model = calibrate_model
         self.reset_optimizer_params_for = reset_optimizer_params_for
         self.update_steps = 0
+        self.buffer_state: Optional[BufferState] = None
         self.log_agent_training = log_agent_training
         self.log_full_training = log_full_training
         if init_function:
@@ -159,9 +161,38 @@ class ModelBasedAgent(DummyAgent):
         action = action[..., :self.action_space.shape[0]]
         return action
 
+
+    def train_step_gp(self, rng: jax.Array, buffer: ReplayBuffer, validate: bool=True,
+                      log_results: bool=True) -> int:
+        transitions = buffer.get_full_normalized_data()
+        train_rng, rng = jax.random.split(rng, 2)
+        model_params = self.dynamics_model.init_model_params
+        model_opt_state = self.dynamics_model.init_model_opt_state
+        alpha = jnp.ones(self.observation_space.shape)
+        if self.num_epochs > 0:
+            total_train_steps = math.ceil(buffer.size * self.num_epochs)
+        else:
+            total_train_steps = self.train_steps
+        (
+            model_params,
+            model_opt_state,
+            alpha,
+            summary,
+        ) = \
+            self.dynamics_model._train_step(
+                tran=transitions,
+                model_params=model_params,
+                model_opt_state=model_opt_state,
+                rng=train_rng,
+                num_steps=total_train_steps,
+            )
+        self.update_models(model_params=model_params, model_opt_state=model_opt_state, alpha=alpha)
+        return total_train_steps
+
     def train_step(self,
                    rng: jax.Array,
                    buffer: ReplayBuffer,
+                   buffer_state: BufferState,
                    validate: bool = True,
                    log_results: bool = True,
                    ) -> int:
@@ -169,87 +200,65 @@ class ModelBasedAgent(DummyAgent):
         Training of model based agent
         :param rng: jax.Array, random key
         :param buffer: ReplayBuffer, buffer of collected transition
+        :param buffer_state: BufferState, current state (data) of the buffer to sample from
         :param validate: bool, boolean for validating model
         :param log_results: bool, boolean to indicate logging of training results.
-        :return total_train_steps: int, total number of training steps done for the model
+        :return
         """
-        # if its a GP fit the model with all transitions
-        if self.is_gp:
-            transitions = buffer.get_full_normalized_data()
-            train_rng, rng = jax.random.split(rng, 2)
+        self.buffer_state = buffer_state
+
+        # perform train steps on the NN model.
+        max_train_steps_per_iter = 8000
+        if self.num_epochs > 0:
+            total_train_steps = math.ceil(self.buffer_state.size * self.num_epochs / self.batch_size)
+        else:
+            total_train_steps = self.train_steps
+        self.update_steps += 1
+        total_train_steps = min(total_train_steps, self.max_train_steps)
+        train_loops = math.ceil(total_train_steps / max_train_steps_per_iter)
+        train_steps = min(max_train_steps_per_iter, total_train_steps)
+        train_loops = max(train_loops, 1)
+        if self.reset_model:
             model_params = self.dynamics_model.init_model_params
             model_opt_state = self.dynamics_model.init_model_opt_state
-            alpha = jnp.ones(self.observation_space.shape)
-            if self.num_epochs > 0:
-                total_train_steps = math.ceil(buffer.size * self.num_epochs)
-            else:
-                total_train_steps = self.train_steps
-            (
-                model_params,
-                model_opt_state,
-                alpha,
-                summary,
-            ) = \
-                self.dynamics_model._train_step(
-                    tran=transitions,
-                    model_params=model_params,
-                    model_opt_state=model_opt_state,
-                    rng=train_rng,
-                    num_steps=total_train_steps,
-                )
         else:
-            # perform train steps on the NN model.
-            max_train_steps_per_iter = 8000
-            if self.num_epochs > 0:
-                total_train_steps = math.ceil(buffer.size * self.num_epochs / self.batch_size)
-            else:
-                total_train_steps = self.train_steps
-            self.update_steps += 1
-            total_train_steps = min(total_train_steps, self.max_train_steps)
-            train_loops = math.ceil(total_train_steps / max_train_steps_per_iter)
-            train_steps = min(max_train_steps_per_iter, total_train_steps)
-            train_loops = max(train_loops, 1)
-            if self.reset_model:
-                model_params = self.dynamics_model.init_model_params
+            model_params = self.dynamics_model.model_params
+            if self.reset_model_opt_state:
                 model_opt_state = self.dynamics_model.init_model_opt_state
             else:
-                model_params = self.dynamics_model.model_params
-                if self.reset_model_opt_state:
-                    model_opt_state = self.dynamics_model.init_model_opt_state
-                else:
-                    model_opt_state = self.dynamics_model.model_opt_state
-            alpha = jnp.ones(self.observation_space.shape)
+                model_opt_state = self.dynamics_model.model_opt_state
+        alpha = jnp.ones(self.observation_space.shape)
 
-            for i in range(train_loops):
-                train_rng, rng = jax.random.split(rng, 2)
-                transitions = buffer.sample(train_rng, self.buffer_state, batch_size=int(self.batch_size * train_steps))
-                transitions = transitions.reshape(train_steps, self.batch_size)
-                val_transitions = None
-                if validate:
-                    train_rng, val_rng = jax.random.split(train_rng, 2)
-                    val_transitions = buffer.sample(val_rng, self.buffer_state, batch_size=int(self.batch_size * train_steps))
-                    val_transitions = val_transitions.reshape(train_steps, self.batch_size)
-                carry = [
-                    train_rng,
-                    alpha,
-                    model_params,
-                    model_opt_state,
-                ]
-                ins = [transitions, val_transitions]
-                carry, outs = jax.lax.scan(self.step, carry, ins, length=train_steps)
-                model_params = carry[2]
-                model_opt_state = carry[3]
-                alpha = carry[1]
-                summary = outs[0]
-                if log_results:
-                    if self.log_full_training:
-                        for i in range(total_train_steps):
-                            wandb.log(get_idx(summary, i).dict())
-                    else:
-                        for i in range(0, total_train_steps, 10):
-                            wandb.log(get_idx(summary, i).dict())
-            if self.calibrate_model:
-                alpha = carry[1]
+        for i in range(train_loops):
+            train_rng, rng = jax.random.split(rng, 2)
+            transitions = buffer.sample(train_rng, self.buffer_state, batch_size=int(self.batch_size * train_steps))
+            transitions = transitions.reshape(train_steps, self.batch_size)
+            val_transitions = None
+            if validate:
+                train_rng, val_rng = jax.random.split(train_rng, 2)
+                val_transitions = buffer.sample(val_rng, self.buffer_state, batch_size=int(self.batch_size * train_steps))
+                val_transitions = val_transitions.reshape(train_steps, self.batch_size)
+            carry = [
+                train_rng,
+                alpha,
+                model_params,
+                model_opt_state,
+            ]
+            ins = [transitions, val_transitions]
+            carry, outs = jax.lax.scan(self.step, carry, ins, length=train_steps)
+            model_params = carry[2]
+            model_opt_state = carry[3]
+            alpha = carry[1]
+            summary = outs[0]
+            if log_results:
+                if self.log_full_training:
+                    for i in range(total_train_steps):
+                        wandb.log(get_idx(summary, i).dict())
+                else:
+                    for i in range(0, total_train_steps, 10):
+                        wandb.log(get_idx(summary, i).dict())
+        if self.calibrate_model:
+            alpha = carry[1]
         self.update_models(model_params=model_params, model_opt_state=model_opt_state, alpha=alpha)
         return total_train_steps
 
@@ -283,13 +292,21 @@ class ModelBasedAgent(DummyAgent):
         )
 
     def update_models(self, model_params: PyTree, model_opt_state: PyTree, alpha: Union[float, jax.Array] = 1.0):
-        """Update model for params."""
-        for i in range(len(self.dynamics_model_list)):
-            self.dynamics_model_list[i].update_model(
-                model_params=model_params,
-                model_opt_state=model_opt_state,
-                alpha=alpha,
-            )
+        #split the models into their constituent parts
+        params_list = [m.model_params for m in self.dynamics_model_list]
+        opt_state_list = [m.model_opt_state for m in self.dynamics_model_list]
+        #make them amenable to vmapping
+        breakpoint()
+        stacked_params = jax.tree.map(lambda *xs: jnp.stack(xs, axis=0), *params_list)
+        stacked_opt_state = jax.tree.map(lambda *xs: jnp.stack(xs, axis=0), *opt_state_list)
+        new_model_props = jax.vmap(DynamicsModel.update_model, in_axes=(0,0,None,None))(stacked_params, stacked_opt_state)
+        for i, model in enumerate(self.dynamics_model_list):
+            model.model_particles = jax.tree.map(lambda x: x[i], stacked_params)
+            model.model_opt_state = jax.tree.map(lambda x: x[i], stacked_opt_state)
+            model.model_props = jax.tree.map(lambda x: x[i], new_model_props)
+        model.model_particles = new_model_props
+        model.model_particles
+        
 
     @property
     def dynamics_model(self) -> DynamicsModel:
