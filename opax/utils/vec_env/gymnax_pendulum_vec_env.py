@@ -3,7 +3,10 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 from gymnasium.spaces import Box
+from gymnax.environments.classic_control.pendulum import angle_normalize
+from opax.models.environment_models.pendulum_swing_up import PendulumReward
 
+    
 
 class GymnaxPendulumVecEnv:
     """Vectorized pendulum environment stepped with gymnax instead of gymnasium.
@@ -28,6 +31,7 @@ class GymnaxPendulumVecEnv:
         self.num_envs = n_envs
         self.env, self.env_params = gymnax.make("Pendulum-v1")
         self.env_params = self.env_params.replace(max_steps_in_episode=time_limit)
+        self.time_limit = time_limit
         self._raw_action_low = -self.env_params.max_torque
         self._raw_action_high = self.env_params.max_torque
         self.action_space = Box(low=-1.0, high=1.0, shape=(1,), dtype=np.float32)
@@ -44,15 +48,31 @@ class GymnaxPendulumVecEnv:
         action = jnp.clip(jnp.asarray(action), -1.0, 1.0)
         return self._raw_action_low + (action + 1.0) * 0.5 * (self._raw_action_high - self._raw_action_low)
 
+    @jax.jit(static_argnames=["self"])
+    def pure_reset(self, rng: jax.Array):
+        """Pure, jittable reset: no ``self`` mutation, no NumPy conversion.
+        Safe to use inside ``jax.lax.scan``/``jax.jit``/``jax.vmap`` (e.g. from
+        ``dummy_trainer.better_eval_policy``), unlike ``reset`` below which
+        owns/mutates ``self.rng``/``self._state`` and crosses back to NumPy.
+
+        :param rng: jax.Array, single rng key for this reset (split internally
+            across ``num_envs``), mirroring how ``pure_step`` derives its own
+            keys.
+        :return: obs, env_state
+        """
+        reset_keys = jax.random.split(rng, self.num_envs)
+        obs, env_state = self._reset_fn(reset_keys, self.env_params)
+        return obs, env_state
+
     def reset(self, seed=None):
         if seed is not None:
             self.rng = jax.random.PRNGKey(seed)
         self.rng, reset_rng = jax.random.split(self.rng)
-        reset_keys = jax.random.split(reset_rng, self.num_envs)
-        obs, self._state = self._reset_fn(reset_keys, self.env_params)
+        obs, self._state = self.pure_reset(reset_rng)
         obs_np = np.asarray(obs)
         return obs_np, [{} for _ in range(self.num_envs)]
 
+    @jax.jit(static_argnames=["self"])
     def pure_step(self, rng: jax.Array, env_state, action: jnp.ndarray):
         """Pure, jittable single-call step: no ``self`` mutation, no NumPy
         conversion. Safe to use inside ``jax.lax.scan``/``jax.jit`` (e.g. from
@@ -72,6 +92,8 @@ class GymnaxPendulumVecEnv:
         )
         return next_obs, next_state, reward, done
 
+
+
     def step(self, action: np.ndarray):
         self.rng, step_rng = jax.random.split(self.rng)
         next_obs, next_state, reward, done = self.pure_step(step_rng, self._state, action)
@@ -89,3 +111,55 @@ class GymnaxPendulumVecEnv:
             for i in range(self.num_envs)
         ]
         return next_obs_np, reward_np, done_np, done_np, info
+     
+class CompiledPendulumTargetAngleEnv(GymnaxPendulumVecEnv):
+    def __init__(self, target_angle, seed):
+        super(CompiledPendulumTargetAngleEnv, self).__init__(n_envs = 1, seed=seed)
+        
+        #no control costs on these envs for comparisons with MUE (vanilla envs!)
+        self._reward_model = PendulumReward(action_space = self.env.action_space, ctrl_cost_weight=0.00, 
+                                            target_angle=target_angle, sparse=False)
+                                            
+    #impure step function which modifies env state and returns a gymnasium-style     
+    #next_obs, reward, terminate, truncate, info tuple
+    def step(self, action):
+        next_state, reward = self.pure_step(self.state, action)
+        self.state = next_state
+        next_obs = self._get_obs(self.state)
+        return next_obs, reward, False, False, {}
+        
+        
+            
+    #pure step function, accepting state and action, returning new_state.
+    #step() handles everything else
+    @jax.jit(static_argnames=["self"])    
+    def pure_step(self, state, action):
+        
+        reward = self._reward_model.predict(state, action)
+        action = jnp.clip(action, self.min_torque, self.max_torque)
+        #constants: can be read during tracing/execution
+        g, m, l, dt= self.g, self.m, self.l, self.dt
+        theta, theta_dot = state
+        theta_doubledot = (3 * g / (2 * l) * np.sin(th) + 3.0 / (m * l ** 2) * u)
+        theta_dot += theta_doubledot * dt
+        theta += theta_dot * dt
+        next_state = jnp.array([theta, theta_dot])
+        
+        return next_state, reward, False
+
+        
+class GymnaxPendulumSwingUp(GymnaxPendulumVecEnv):
+    def __init__(self, num_envs: int, seed: int, time_limit: int=200):
+        super(GymnaxPendulumSwingUp, self).__init__(num_envs, seed, time_limit)
+        
+    def pure_step(self, rng: jax.Array, env_state, action: jax.Array):
+        next_obs, next_state, vanilla_reward, done = super().pure_step(rng, env_state, action)
+        reward = self.state_reward(env_state, target_angle=0.0)
+        return next_obs, next_state, reward, done
+        
+    @staticmethod
+    @jax.jit
+    def state_reward(state, target_angle: float = 0.0):
+        """Compute reward associated with state dynamics."""
+        theta = angle_normalize(state.theta - target_angle)
+        return -(theta ** 2 + 0.1 * state.theta_dot ** 2)

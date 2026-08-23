@@ -1,7 +1,7 @@
 from gymnasium.wrappers import RescaleAction, TimeLimit
 from opax.utils.vec_env.env_util import make_vec_env
 from opax.utils.vec_env.subproc_vec_env import SubprocVecEnv
-from opax.utils.vec_env.gymnax_pendulum_vec_env import GymnaxPendulumVecEnv
+from opax.utils.vec_env.gymnax_pendulum_vec_env import GymnaxPendulumVecEnv,  CompiledPendulumTargetAngleEnv
 from opax.models.environment_models.pendulum_swing_up import PendulumReward, CustomPendulumEnv, PendulumDynamicsModel
 from opax.models.active_learning_model import ActiveLearningHUCRLModel, ActiveLearningPETSModel
 from opax.models.hucrl_model import HUCRLModel
@@ -90,13 +90,12 @@ def experiment(logs_dir: str, use_wandb: bool, exp_name: str, time_limit: int, n
     env_kwargs_swing_up = {
         'target_angle': 0.0,
     }
+    
+    
 
-    test_env_keep_down = make_vec_env(env_id=CustomPendulumEnv, wrapper_class=wrapper_cls, n_envs=1, seed=seed,
-                                     env_kwargs=env_kwargs_keep_down)
-    test_env_swing_up = make_vec_env(env_id=CustomPendulumEnv, wrapper_class=wrapper_cls, n_envs=1, seed=seed,
-                                 env_kwargs=env_kwargs_swing_up)
-                       # vec_env_cls=SubprocVecEnv)
-    # test_env = make_vec_env(env_id=CustomPendulumEnv, wrapper_class=wrapper_cls_test, n_envs=1, seed=seed, env_kwargs=env_kwargs)
+    test_env_keep_down = CompiledPendulumTargetAngleEnv(target_angle=jnp.pi, seed=seed)
+    test_env_swing_up = CompiledPendulumTargetAngleEnv(target_angle=0.00, seed=seed+1)
+    
     test_env = [test_env_keep_down, test_env_swing_up]
     features = [num_neurons] * hidden_layers
     reward_model_keep_down = PendulumReward(action_space=env.action_space, target_angle=np.pi)
