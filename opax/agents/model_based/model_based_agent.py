@@ -292,20 +292,10 @@ class ModelBasedAgent(DummyAgent):
         )
 
     def update_models(self, model_params: PyTree, model_opt_state: PyTree, alpha: Union[float, jax.Array] = 1.0):
-        #split the models into their constituent parts
-        params_list = [m.model_params for m in self.dynamics_model_list]
-        opt_state_list = [m.model_opt_state for m in self.dynamics_model_list]
-        #make them amenable to vmapping
-        breakpoint()
-        stacked_params = jax.tree.map(lambda *xs: jnp.stack(xs, axis=0), *params_list)
-        stacked_opt_state = jax.tree.map(lambda *xs: jnp.stack(xs, axis=0), *opt_state_list)
-        new_model_props = jax.vmap(DynamicsModel.update_model, in_axes=(0,0,None,None))(stacked_params, stacked_opt_state)
-        for i, model in enumerate(self.dynamics_model_list):
-            model.model_particles = jax.tree.map(lambda x: x[i], stacked_params)
-            model.model_opt_state = jax.tree.map(lambda x: x[i], stacked_opt_state)
-            model.model_props = jax.tree.map(lambda x: x[i], new_model_props)
-        model.model_particles = new_model_props
-        model.model_particles
+        for i in range(len(self.dynamics_model_list)):
+            self.dynamics_model_list[i].update_model(model_params=model_params,
+                                                     model_opt_state=model_opt_state,
+                                                     alpha=alpha)
         
 
     @property
