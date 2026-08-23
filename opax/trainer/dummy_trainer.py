@@ -306,6 +306,49 @@ class DummyTrainer(object):
         obs, _ = self.env.reset_env(seed=reset_seed)
         return transitions
 
+    def better_eval_policy(self, rng: jax.Array) -> dict:
+        self.agent.prepare_agent_for_rollout()
+        evaluations = jnp.zeros(self.eval_episodes)
+        
+        for env_index, env in enumerate(self.test_env):
+            episode_rngs = jax.random.split(rng, self.eval_episodes)
+                    
+            def step_body(carry, rng):
+                obs, env_state, done = carry
+                action = self.agent.act_in_jax(obs, rng, eval=True, eval_idx=env_index)
+                #need to change this in nondeterministic envs that need seed
+                next_obs, next_state, reward, env_done = env.pure_step(env_state, action)
+                done = jax.lax.cond(jnp.logical_or(done, env_done), lambda: 1, lambda: 0)
+                return (next_obs, next_state, done), (obs, action, next_obs, reward, done)
+                
+                
+            #takes in an rng, returns the average reward from the environment
+            #might break if the env is not compilable
+            def evaluate_one_episode(rng):
+                reset_key, subkey = jax.random.split(rng)
+                obs, initial_state = env.pure_reset(reset_key)
+                #it's not actually env.time_limit!
+                step_rngs = jax.random.split(subkey, env.time_limit)
+                #scan over steps: remove the ones after termination/truncation in calculating the average
+                (last_obs, last_state, ever_terminated), (obs_sequence, action_sequence, 
+                                         next_obs_sequence, reward_sequence, 
+                                         done_sequence) = jax.lax.scan(step_body, (obs, initial_state, 0), step_rngs)
+                
+                #calculate the actual average of rewards before dones
+                steps_before_termination = jnp.shape(done_sequence)[0] - jnp.count_nonzero(done_sequence)
+                cumulative_reward = jnp.sum(jnp.where(done_sequence - 1), reward_sequence, jnp.zeros(jnp.shape(done_sequence)))
+                return cumulative_reward/steps_before_termination
+                
+            evaluate_one_env = jax.vmap(evaluate_one_episode)
+        
+
+            average_rewards = jnp.mean(evaluate_one_env(episode_rngs))
+            final_reward_average = jnp.mean(average_rewards)
+            reward_log[f"reward_task_{idx}"] = final_reward_average
+            
+        return reward_log
+        
+
     def eval_policy(self, step: int = 0, rng: Optional[jax.Array] = None) -> dict:
         """
         Evaluates policy in the environment till it is done.
@@ -318,6 +361,7 @@ class DummyTrainer(object):
 
         }
         self.agent.prepare_agent_for_rollout()
+        print(self.test_env)
         for i, env in enumerate(self.test_env):
             pbar = tqdm()
             avg_reward = 0.0
