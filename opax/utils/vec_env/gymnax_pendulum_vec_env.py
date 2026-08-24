@@ -92,6 +92,11 @@ class GymnaxPendulumVecEnv:
         )
         return next_obs, next_state, reward, done
 
+    @staticmethod
+    @jax.jit
+    def _get_obs(state):
+        theta, thetadot = state.theta, state.theta_dot
+        return jnp.stack([jnp.cos(theta), jnp.sin(theta), thetadot], axis=-1).astype(jnp.float32)
 
 
     def step(self, action: np.ndarray):
@@ -113,39 +118,46 @@ class GymnaxPendulumVecEnv:
         return next_obs_np, reward_np, done_np, done_np, info
      
 class CompiledPendulumTargetAngleEnv(GymnaxPendulumVecEnv):
+    """Vectorized pendulum with a target-angle reward (a generalization of
+    ``GymnaxPendulumSwingUp`` for arbitrary target angles, e.g.
+    ``target_angle=0.0`` for swing-up, ``target_angle=pi`` for keep-down).
+
+    Dynamics are entirely inherited from ``GymnaxPendulumVecEnv``
+    (``super().pure_step``/``reset``) — gymnax's real, tested Pendulum-v1
+    physics, including action rescaling and max-speed clipping — only the
+    reward is replaced with ``PendulumReward``'s target-angle formula. This
+    class never hand-rolls the physics itself, so there is only one place
+    (the inherited dynamics) that can get the state representation wrong.
+
+    Convention used throughout this file: ``state``/``env_state`` is always
+    a gymnax ``EnvState`` pytree (attribute access: ``.theta``/
+    ``.theta_dot``); ``obs`` is always the flattened
+    ``[cos theta, sin theta, theta_dot]`` array that ``PendulumReward`` and
+    the replay buffer expect. The only place the two are converted is
+    ``_get_obs`` (inherited from ``GymnaxPendulumVecEnv``) — nothing here
+    reads ``.theta``/``.theta_dot`` off an obs array or indexes into an
+    ``EnvState`` positionally.
+    """
+
     def __init__(self, target_angle, seed):
-        super(CompiledPendulumTargetAngleEnv, self).__init__(n_envs = 1, seed=seed)
-        
+        super(CompiledPendulumTargetAngleEnv, self).__init__(n_envs=1, seed=seed)
+
         #no control costs on these envs for comparisons with MUE (vanilla envs!)
-        self._reward_model = PendulumReward(action_space = self.env.action_space, ctrl_cost_weight=0.00, 
+        self._reward_model = PendulumReward(action_space=self.action_space, ctrl_cost_weight=0.00,
                                             target_angle=target_angle, sparse=False)
-                                            
-    #impure step function which modifies env state and returns a gymnasium-style     
-    #next_obs, reward, terminate, truncate, info tuple
-    def step(self, action):
-        next_state, reward = self.pure_step(self.state, action)
-        self.state = next_state
-        next_obs = self._get_obs(self.state)
-        return next_obs, reward, False, False, {}
-        
-        
-            
-    #pure step function, accepting state and action, returning new_state.
-    #step() handles everything else
-    @jax.jit(static_argnames=["self"])    
-    def pure_step(self, state, action):
-        
-        reward = self._reward_model.predict(state, action)
-        action = jnp.clip(action, self.min_torque, self.max_torque)
-        #constants: can be read during tracing/execution
-        g, m, l, dt= self.g, self.m, self.l, self.dt
-        theta, theta_dot = state
-        theta_doubledot = (3 * g / (2 * l) * np.sin(th) + 3.0 / (m * l ** 2) * u)
-        theta_dot += theta_doubledot * dt
-        theta += theta_dot * dt
-        next_state = jnp.array([theta, theta_dot])
-        
-        return next_state, reward, False
+
+    def pure_step(self, rng: jax.Array, env_state, action: jnp.ndarray):
+        """Pure, jittable step. Reward is computed on the pre-transition obs
+        and action (PendulumReward's r(s, a) convention, matching
+        CustomPendulumEnv.step()) before delegating the actual dynamics to
+        the inherited gymnax step, so ``next_state`` stays a proper
+        ``EnvState`` (never a bare array) and can be fed straight back into
+        the next call.
+        """
+        obs = self._get_obs(env_state)
+        reward = self._reward_model.predict(obs, action)
+        next_obs, next_state, _vanilla_reward, done = super().pure_step(rng, env_state, action)
+        return next_obs, next_state, reward, done
 
         
 class GymnaxPendulumSwingUp(GymnaxPendulumVecEnv):

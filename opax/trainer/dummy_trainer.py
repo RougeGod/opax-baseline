@@ -315,10 +315,11 @@ class DummyTrainer(object):
                     
             def step_body(carry, rng):
                 obs, env_state, done = carry
-                action = self.agent.act_in_jax(obs, rng, eval=True, eval_idx=env_index)
-                #need to change this in nondeterministic envs that need seed
-                next_obs, next_state, reward, env_done = env.pure_step(env_state, action)
-                done = jax.lax.cond(jnp.logical_or(done, env_done), lambda: 1, lambda: 0)
+                act_rng, env_rng = jax.random.split(rng)
+                action = jnp.zeros(1, dtype=jnp.float32)#self.agent.act_in_jax(obs, act_rng, eval=True, eval_idx=env_index)
+                next_obs, next_state, reward, env_done = env.pure_step(env_rng, env_state, action)
+                #convert the array given by logical_or to a scalar bool that can be read by lax.cond
+                done = jax.lax.cond(jnp.logical_or(done, env_done).reshape(), lambda: 1, lambda: 0)
                 return (next_obs, next_state, done), (obs, action, next_obs, reward, done)
                 
                 
@@ -327,7 +328,6 @@ class DummyTrainer(object):
             def evaluate_one_episode(rng):
                 reset_key, subkey = jax.random.split(rng)
                 obs, initial_state = env.pure_reset(reset_key)
-                #it's not actually env.time_limit!
                 step_rngs = jax.random.split(subkey, env.time_limit)
                 #scan over steps: remove the ones after termination/truncation in calculating the average
                 (last_obs, last_state, ever_terminated), (obs_sequence, action_sequence, 
@@ -336,7 +336,7 @@ class DummyTrainer(object):
                 
                 #calculate the actual average of rewards before dones
                 steps_before_termination = jnp.shape(done_sequence)[0] - jnp.count_nonzero(done_sequence)
-                cumulative_reward = jnp.sum(jnp.where(done_sequence - 1), reward_sequence, jnp.zeros(jnp.shape(done_sequence)))
+                cumulative_reward = jnp.sum(jnp.where(done_sequence - 1, reward_sequence, jnp.zeros(jnp.shape(done_sequence))))
                 return cumulative_reward/steps_before_termination
                 
             evaluate_one_env = jax.vmap(evaluate_one_episode)
@@ -344,7 +344,8 @@ class DummyTrainer(object):
 
             average_rewards = jnp.mean(evaluate_one_env(episode_rngs))
             final_reward_average = jnp.mean(average_rewards)
-            reward_log[f"reward_task_{idx}"] = final_reward_average
+            reward_log = {}
+            reward_log[f"reward_task_{env_index}"] = final_reward_average
             
         return reward_log
         
