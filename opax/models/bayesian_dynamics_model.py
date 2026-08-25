@@ -16,7 +16,7 @@ from typing import List, Union
 from opax.utils.utils import gaussian_log_likelihood
 from opax.utils.network_utils import mse
 from jaxtyping import PyTree
-from opax.utils.ground_truth import sample_validation_batch, generate_validation_data
+from opax.utils.ground_truth import sample_validation_batch, true_transition
 import gymnax
 
 class SamplingType:
@@ -417,8 +417,8 @@ class BayesianDynamicsModel(DynamicsModel):
     def init_model_opt_state(self) -> PyTree:
         return self.model.init_opt_state
 
-    def update_model(self, model_params: PyTree, model_opt_state: PyTree, alpha: Union[chex.Array, float]):
-        super().update_model(model_params, model_opt_state, alpha)
+    def update_model(self, model_params: PyTree, model_opt_state: PyTree, alpha: Union[chex.Array, float], model_props):
+        self.model_props = super().update_model(model_params, model_opt_state, alpha, model_props)
         self.model.particles = model_params
         self.model.opt_state = model_opt_state
 
@@ -450,27 +450,55 @@ class BayesianDynamicsModel(DynamicsModel):
         reward = reward_fn(obs, action, next_obs, reward_rng)
         return next_obs, reward
     
-    def get_dynamics_mae(self, rng, env_name="Pendulum-v1"):   
-        env, env_params = gymnax.make(env_name) 
-        random_sa_pair_batch = sample_validation_batch(rng, env, env_params, env_name, 1000)
-                            #1 is the observation, 4 is the action
+    def _get_mae_ground_truth_fn(self, env_name: str):
+        """Builds (once per env_name) and caches a single jitted function that
+        samples a validation batch and computes its ground-truth delta_obs/
+        reward/terminated in one vmapped pass over `true_transition`.
+
+        Previously `get_dynamics_mae` rebuilt the gymnax env and three
+        separate, uncached `jax.vmap(lambda ...)` wrappers (one each for
+        delta_obs/reward/terminated, each independently recomputing
+        `true_transition`/`env.step`) on every call. Since `get_dynamics_mae`
+        is now called every training iteration, that meant a fresh trace-and
+        -compile (times three) per call. Caching one combined jitted function
+        on `self`, keyed by env_name, avoids both the redundant recomputation
+        and the repeated recompilation.
+        """
+        cache = getattr(self, "_mae_ground_truth_cache", None)
+        if cache is not None and cache[0] == env_name:
+            return cache[1]
+
+        env, env_params = gymnax.make(env_name)
+
+        def ground_truth_batch(rng):
+            _, obs, s1, s2, act = sample_validation_batch(rng, env, env_params, env_name, 1000)
+            delta_obs, reward, terminated = jax.vmap(
+                lambda x1, x2, a: true_transition(env, env_params, env_name, x1, x2, a)
+            )(s1, s2, act[:, 0])
+            return obs, act, delta_obs, reward, terminated
+
+        ground_truth_batch = jax.jit(ground_truth_batch)
+        self._mae_ground_truth_cache = (env_name, ground_truth_batch)
+        return ground_truth_batch
+
+    def get_dynamics_mae(self, rng, env_name="Pendulum-v1"):
+        ground_truth_batch = self._get_mae_ground_truth_fn(env_name)
+        val_obs, val_act, true_delta_obs, true_reward, true_terminated = ground_truth_batch(rng)
         #these Transition objects are only used in the predict_raw method and therefore don't need
         #reward, next_obs, or dones, fill those with zeros
-        random_transitions = Transition(random_sa_pair_batch[1], random_sa_pair_batch[4], 
-                                        jnp.zeros_like(random_sa_pair_batch[1]), 
-                                        jnp.zeros_like(random_sa_pair_batch[1]), 
-                                        jnp.zeros_like(random_sa_pair_batch[1]))
-        #query the actual environment to get its dynamics (observation, action, delta_next_obs, reward, terminated)
-        ground_truth_dynamics = generate_validation_data(env, env_params, "Pendulum-v1", batch=random_sa_pair_batch)
-        
+        random_transitions = Transition(val_obs, val_act,
+                                        jnp.zeros_like(val_obs),
+                                        jnp.zeros_like(val_obs),
+                                        jnp.zeros_like(val_obs, dtype=jnp.bool_))
+
         mean_next_obs, std_next_obs = self.predict_raw(parameters=self.model_params,
                                                        tran=random_transitions,
                                                        model_props=self.model_props
                                                        )
         #predict_raw gives the prediction of the next state, turn that into a delta
-        mean_delta_next_obs = mean_next_obs - random_sa_pair_batch[1]
+        mean_delta_next_obs = mean_next_obs - val_obs
         #get mean of dynamics error over dimensions and return it as a dictionary for wandb
-        dynamics_mae = jnp.mean(jnp.abs(ground_truth_dynamics[2] - mean_delta_next_obs))
+        dynamics_mae = jnp.mean(jnp.abs(true_delta_obs - mean_delta_next_obs))
         return {"dynamics_mae": dynamics_mae}
         
 

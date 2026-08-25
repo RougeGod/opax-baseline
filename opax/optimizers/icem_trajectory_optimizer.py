@@ -457,16 +457,24 @@ class ICemTO(DummyPolicyOptimizer):
             model_index: int,
             dynamics_params: PyTree,
             obs: chex.Array,
+            best_sequences: BestSequences,
             key: jax.Array = None,
             optimizer_key: jax.Array = None,
             model_props: ModelProperties = ModelProperties(),
             initial_actions: Optional[jax.Array] = None,
             sampling_idx: Optional[Union[jnp.ndarray, int]] = None,
     ):
+        """Pure: takes the current iCEM warm-start state in and returns the
+        updated state out, instead of mutating ``self.best_sequences``.
+        Mutating ``self`` here would leak a tracer whenever this is called
+        from within an outer ``jax.jit``/``jax.lax.scan``/``jax.vmap`` trace
+        (which it is, via ``ModelBasedAgent.act_in_jax`` being called from
+        ``dummy_trainer.step_env``/``better_eval_policy``'s scanned bodies).
+        """
         if initial_actions is None:
-            prev_best = jnp.zeros_like(self.best_sequences.evaluation_sequences[model_index])
-            prev_best = prev_best.at[:-1].set(self.best_sequences.evaluation_sequences[model_index][1:])
-            last_input = self.best_sequences.evaluation_sequences[model_index][-1]
+            prev_best = jnp.zeros_like(best_sequences.evaluation_sequences[model_index])
+            prev_best = prev_best.at[:-1].set(best_sequences.evaluation_sequences[model_index][1:])
+            last_input = best_sequences.evaluation_sequences[model_index][-1]
             prev_best = prev_best.at[-1].set(last_input)
             initial_actions = prev_best
 
@@ -483,27 +491,30 @@ class ICemTO(DummyPolicyOptimizer):
             )
 
         best_sequence, best_reward = jax.vmap(optimize)(obs, key, optimizer_key)
-        sequence_copy = self.best_sequences.evaluation_sequences.at[model_index].set(best_sequence[0])
-        self.best_sequences = BestSequences(
-            evaluation_sequences=sequence_copy,
-            exploration_sequence=self.best_sequences.exploration_sequence,
+        new_evaluation_sequences = best_sequences.evaluation_sequences.at[model_index].set(best_sequence[0])
+        new_best_sequences = BestSequences(
+            evaluation_sequences=new_evaluation_sequences,
+            exploration_sequence=best_sequences.exploration_sequence,
         )
-        return best_sequence, best_reward
+        return best_sequence, best_reward, new_best_sequences
 
     def optimize_for_exploration(
             self,
             dynamics_params,
             obs,
+            best_sequences: BestSequences,
             key=None,
             optimizer_key=None,
             model_props: ModelProperties = ModelProperties(),
             initial_actions: Optional[jax.Array] = None,
             sampling_idx: Optional[Union[jnp.ndarray, int]] = None,
     ):
+        """Pure counterpart to ``_get_action_sequence`` above — same reason:
+        no ``self`` mutation, warm-start state threaded explicitly."""
         if initial_actions is None:
-            prev_best = jnp.zeros_like(self.best_sequences.exploration_sequence)
-            prev_best = prev_best.at[:-1].set(self.best_sequences.exploration_sequence[1:])
-            last_input = self.best_sequences.exploration_sequence[-1]
+            prev_best = jnp.zeros_like(best_sequences.exploration_sequence)
+            prev_best = prev_best.at[:-1].set(best_sequences.exploration_sequence[1:])
+            last_input = best_sequences.exploration_sequence[-1]
             prev_best = prev_best.at[-1].set(last_input)
             initial_actions = prev_best
 
@@ -520,11 +531,11 @@ class ICemTO(DummyPolicyOptimizer):
             )
 
         best_sequence, best_reward = jax.vmap(optimize)(obs, key, optimizer_key)
-        self.best_sequences = BestSequences(
-            evaluation_sequences=self.best_sequences.evaluation_sequences,
+        new_best_sequences = BestSequences(
+            evaluation_sequences=best_sequences.evaluation_sequences,
             exploration_sequence=best_sequence[0],
         )
-        return best_sequence, best_reward
+        return best_sequence, best_reward, new_best_sequences
 
     @property
     def dynamics_model(self):

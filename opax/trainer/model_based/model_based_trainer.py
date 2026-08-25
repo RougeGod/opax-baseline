@@ -1,5 +1,6 @@
 import jax.random
-from opax.utils.replay_buffer import ReplayBuffer, Transition
+from opax.utils.replay_buffer import JaxReplayBuffer as ReplayBuffer
+from opax.utils.replay_buffer import Transition, BufferState
 from opax.trainer.dummy_trainer import DummyTrainer
 from opax.agents.model_based.model_based_agent import ModelBasedAgent
 import wandb
@@ -51,6 +52,9 @@ class ModelBasedTrainer(DummyTrainer):
                 action_normalize=False,
                 learn_deltas=True
             )
+            
+            self.validation_buffer_state = self.validation_buffer.initialize_buffer_state()
+            
             num_points = int(validation_buffer_size * self.num_envs)
             obs_shape = (num_points,) + self.env.observation_space.shape
             action_space = (num_points,) + self.env.action_space.shape
@@ -58,7 +62,7 @@ class ModelBasedTrainer(DummyTrainer):
             action_vec = np.zeros(action_space)
             reward_vec = np.zeros((num_points,))
             next_obs_vec = np.zeros(obs_shape)
-            done_vec = np.zeros((num_points,))
+            done_vec = np.zeros((num_points,), dtype=bool)
             for step in range(validation_buffer_size):
                 obs = self.env.observation_space.sample()
                 action = self.env.action_space.sample()
@@ -81,7 +85,7 @@ class ModelBasedTrainer(DummyTrainer):
             #                                  policy,
             #                                  val_rng
             #                                  )
-            self.validation_buffer.add(transitions)
+            self.validation_buffer_state = self.validation_buffer.add(transitions, self.validation_buffer_state)
 
     def validate_model(self, rng: jax.Array) -> dict:
         """
@@ -93,6 +97,7 @@ class ModelBasedTrainer(DummyTrainer):
         if self.validation_buffer is not None:
             val_tran = self.validation_buffer.sample(
                 rng=rng,
+                state=self.validation_buffer_state,
                 batch_size=self.validation_batch_size,
             )
             mean_pred, std_pred = self.agent.predict_next_state(val_tran)
@@ -135,16 +140,16 @@ class ModelBasedTrainer(DummyTrainer):
         eval_rng, curr_eval = random.split(eval_rng, 2)
 
         self.agent.set_transforms(
-            bias_obs=self.buffer.state_normalizer.mean,
-            bias_act=self.buffer.action_normalizer.mean,
-            bias_out=self.buffer.next_state_normalizer.mean,
-            scale_obs=self.buffer.state_normalizer.std,
-            scale_act=self.buffer.action_normalizer.std,
-            scale_out=self.buffer.next_state_normalizer.std,
+                bias_obs=self.buffer_state.state_normalizer_state.mean,
+                bias_act=self.buffer_state.action_normalizer_state.mean,
+                bias_out=self.buffer_state.next_state_normalizer_state.mean,
+                scale_obs=self.buffer_state.state_normalizer_state.std,
+                scale_act=self.buffer_state.action_normalizer_state.std,
+                scale_out=self.buffer_state.next_state_normalizer_state.std,
         )
         curr_eval, eval_val_rng = jax.random.split(curr_eval, 2)
         model_log = self.validate_model(eval_val_rng)
-        reward_log = self.eval_policy(rng=curr_eval)
+        reward_log = self.better_eval_policy(rng=curr_eval)
         best_performance = reward_log['reward_task_0']
         reward_log['env_steps'] = 0
         reward_log['learning_step'] = 0
@@ -158,17 +163,24 @@ class ModelBasedTrainer(DummyTrainer):
             reward_log.update(model_log)
             wandb.log(reward_log)
             #get the dynamics MAE before any learning
-            wandb.log(self.agent.dynamics_model.get_dynamics_mae(rng=jax.random.PRNGKey(self.seed)))
+            wandb.log(self.agent.dynamics_model.get_dynamics_mae(rng=self.rng))
 
         # returns policy used for random exploration
-        exploration_policy = lambda x, y: np.concatenate([self.env.action_space.sample().reshape(1, -1)
-                                                          for s in range(self.num_envs)], axis=0)
+        #may need to be changed based on the env but I think the actions are always clipped to [-1,1] for normalization?
+        # best_sequences is passed through unchanged: random exploration doesn't
+        # touch the iCEM warm-start state, but every policy callable passed to
+        # step_env/rollout_policy needs the same (obs, rng, best_sequences) ->
+        # (action, best_sequences) shape so those methods can stay agnostic to
+        # which kind of policy they were given.
+        exploration_policy = lambda obs, rng, best_sequences: (
+            jax.random.uniform(rng, self.action_shape, minval=-1.0, maxval=1.0), best_sequences
+        )
         # collect data with the random policy
         policy = exploration_policy
         self.rng, explore_rng = random.split(self.rng, 2)
         if self.exploration_steps > 0:
             transitions = self.rollout_policy(self.exploration_steps, policy, explore_rng)
-            self.buffer.add(transitions)
+            self.buffer_state = self.buffer.add(transitions, self.buffer_state)
         rng_keys = random.split(self.rng, self.total_train_steps + 1)
         self.rng = rng_keys[0]
         rng_keys = rng_keys[1:]
@@ -184,19 +196,20 @@ class ModelBasedTrainer(DummyTrainer):
         obs, _ = self.env.reset(seed=reset_seed)
         step = 0
         for step in tqdm(range(learning_steps)):
+            print("Step: {step}")
             # collect rollouts with policy
             actor_rng, train_rng = random.split(rng_keys[step], 2)
             policy = self.agent.act_in_train if not self.uniform_exploration else exploration_policy
             actor_rng, val_rng = random.split(actor_rng, 2)
             transitions, obs, done = self.step_env(obs, policy, self.rollout_steps, actor_rng)
-            self.buffer.add(transitions)
+            self.buffer_state = self.buffer.add(transitions, self.buffer_state)
             self.agent.set_transforms(
-                bias_obs=self.buffer.state_normalizer.mean,
-                bias_act=self.buffer.action_normalizer.mean,
-                bias_out=self.buffer.next_state_normalizer.mean,
-                scale_obs=self.buffer.state_normalizer.std,
-                scale_act=self.buffer.action_normalizer.std,
-                scale_out=self.buffer.next_state_normalizer.std,
+                bias_obs=self.buffer_state.state_normalizer_state.mean,
+                bias_act=self.buffer_state.action_normalizer_state.mean,
+                bias_out=self.buffer_state.next_state_normalizer_state.mean,
+                scale_obs=self.buffer_state.state_normalizer_state.std,
+                scale_act=self.buffer_state.action_normalizer_state.std,
+                scale_out=self.buffer_state.next_state_normalizer_state.std,
             )
             self.agent.update_posterior(self.buffer)
             reward_log = {}
@@ -207,11 +220,12 @@ class ModelBasedTrainer(DummyTrainer):
                 'learning_step': step,
             }
             # update agent
-            if step % self.train_freq == 0 and (self.buffer.size >= self.agent.batch_size or self.agent.is_gp):
+            if step % self.train_freq == 0 and (self.buffer_state.size >= self.agent.batch_size or self.agent.is_gp):
                 train_rng, agent_rng = random.split(train_rng, 2)
                 total_train_steps = self.agent.train_step(
                     rng=agent_rng,
                     buffer=self.buffer,
+                    buffer_state=self.buffer_state,
                     validate=self.validate,
                     log_results=self.use_wandb,
                 )
@@ -225,7 +239,7 @@ class ModelBasedTrainer(DummyTrainer):
             # Evaluate episode
             if step % self.eval_freq == 0 and train_steps > 0:
                 eval_rng, curr_eval = random.split(eval_rng, 2)
-                reward_log = self.eval_policy(rng=curr_eval, step=step)
+                reward_log = self.better_eval_policy(rng=curr_eval)
                 if reward_log['reward_task_0'] > best_performance:
                     best_performance = reward_log['reward_task_0']
                     self.save_agent(step)
@@ -235,7 +249,7 @@ class ModelBasedTrainer(DummyTrainer):
                 train_log.update(train_step_log)
                 train_log.update(reward_log)
                 train_log.update(model_log)
-                scalar_dict = {'scale_out': np.mean(self.buffer.next_state_normalizer.std).astype(float).item()}
+                #scalar_dict = {'scale_out': np.mean(self.buffer.next_state_normalizer.std).astype(float).item()}
                 # scaler_dict = {
                 #     'bias_obs': np.mean(self.buffer.state_normalizer.mean).astype(float).item(),
                 #     'bias_act': np.mean(self.buffer.action_normalizer.mean).astype(float).item(),
@@ -244,9 +258,9 @@ class ModelBasedTrainer(DummyTrainer):
                 #     'scale_act': np.mean(self.buffer.action_normalizer.std).astype(float).item(),
                 #     'scale_out': np.mean(self.buffer.next_state_normalizer.std).astype(float).item(),
                 # }
-                train_log.update(scalar_dict)
+                #train_log.update(scalar_dict)
                 wandb.log(train_log)
-                wandb.log(self.agent.dynamics_model.get_dynamics_mae(rng=jax.random.PRNGKey(self.seed)))
+                wandb.log(self.agent.dynamics_model.get_dynamics_mae(rng=self.rng))
             # step += 1
         self.save_agent(step, agent_name="final_agent")
 

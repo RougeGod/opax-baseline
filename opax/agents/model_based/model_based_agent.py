@@ -4,7 +4,8 @@ import math
 from opax.models.dynamics_model import DynamicsModel
 from opax.optimizers.icem_trajectory_optimizer import ICemTO
 import gymnasium as gym
-from opax.utils.replay_buffer import ReplayBuffer, Transition
+from opax.utils.replay_buffer import Transition, BufferState
+from opax.utils.replay_buffer import JaxReplayBuffer as ReplayBuffer
 from opax.utils.utils import get_idx
 from opax.agents.dummy_agent import DummyAgent
 import jax.numpy as jnp
@@ -84,6 +85,11 @@ class ModelBasedAgent(DummyAgent):
         self.calibrate_model = calibrate_model
         self.reset_optimizer_params_for = reset_optimizer_params_for
         self.update_steps = 0
+        self.buffer_state: Optional[BufferState] = None
+        # Agent-owned copy of the iCEM warm-start state. Owned here (not by
+        # self.policy_optimizer) so act_in_jax can thread it through as an
+        # explicit input/output instead of mutating it in place mid-trace.
+        self.best_sequences = self.policy_optimizer.best_sequences
         self.log_agent_training = log_agent_training
         self.log_full_training = log_full_training
         if init_function:
@@ -122,46 +128,71 @@ class ModelBasedAgent(DummyAgent):
             return carry, outs
 
         self.step = jax.jit(step)
+        
+    @jax.jit(static_argnames=["self", "eval", "eval_idx"])
+    def act_in_jax(self, obs: jax.Array, rng: jax.Array, best_sequences, eval: bool = False, eval_idx: int = 0):
+        """Optimize for an action sequence via MPC and take its first action.
 
-    def act_in_jax(self, obs: jax.Array, rng: jax.Array, eval: bool = False, eval_idx: int = 0):
-        # optimize for actions and take the first best one --> MPC
+        needs to take the model's current best_sequences to avoid tracer leaks and 
+        the new optimizer state (best_sequences) gets written explicitly to the return
+        """
         if eval:
-            dim_state = obs.shape[-1]
-            obs = obs.reshape(-1, dim_state)
-            n_envs = obs.shape[0]
-            rollout_rng, optimizer_rng = jax.random.split(rng, 2)
-            rollout_rng = jax.random.split(rollout_rng, n_envs)
-            optimizer_rng = jax.random.split(optimizer_rng, n_envs)
+            obs = obs.reshape(-1, obs.shape[-1])
             optimize_fn = self.policy_optimizer.optimize_for_eval_fns[eval_idx]
-            action_sequence, best_reward = optimize_fn(
-                dynamics_params=self.dynamics_model.model_params,
-                obs=obs,
-                key=rollout_rng,
-                optimizer_key=optimizer_rng,
-                model_props=self.dynamics_model.model_props,
-            )
-            action = action_sequence[:, 0, ...]
-            if action.shape[0] == 1:
-                action = action.squeeze(0)
         else:
-            n_envs = obs.shape[0]
-            rollout_rng, optimizer_rng = jax.random.split(rng, 2)
-            rollout_rng = jax.random.split(rollout_rng, n_envs)
-            optimizer_rng = jax.random.split(optimizer_rng, n_envs)
-            action_sequence, best_reward = self.policy_optimizer.optimize_for_exploration(
-                    dynamics_params=self.dynamics_model.model_params,
-                    obs=obs,
-                    key=rollout_rng,
-                    optimizer_key=optimizer_rng,
-                    model_props=self.dynamics_model.model_props,
-                )
-            action = action_sequence[:, 0, ...]
+            optimize_fn = self.policy_optimizer.optimize_for_exploration
+
+        n_envs = obs.shape[0]
+        rollout_rng, optimizer_rng = jax.random.split(rng, 2)
+        rollout_rng = jax.random.split(rollout_rng, n_envs)
+        optimizer_rng = jax.random.split(optimizer_rng, n_envs)
+
+        action_sequence, best_reward, new_best_sequences = optimize_fn(
+            dynamics_params=self.dynamics_model.model_params,
+            obs=obs,
+            best_sequences=best_sequences,
+            key=rollout_rng,
+            optimizer_key=optimizer_rng,
+            model_props=self.dynamics_model.model_props,
+        )
+        action = action_sequence[:, 0, ...]
+        if eval and action.shape[0] == 1:
+            action = action.squeeze(0)
         action = action[..., :self.action_space.shape[0]]
-        return action
+        return action, new_best_sequences
+
+
+    def train_step_gp(self, rng: jax.Array, buffer: ReplayBuffer, validate: bool=True,
+                      log_results: bool=True) -> int:
+        transitions = buffer.get_full_normalized_data()
+        train_rng, rng = jax.random.split(rng, 2)
+        model_params = self.dynamics_model.init_model_params
+        model_opt_state = self.dynamics_model.init_model_opt_state
+        alpha = jnp.ones(self.observation_space.shape)
+        if self.num_epochs > 0:
+            total_train_steps = math.ceil(buffer.size * self.num_epochs)
+        else:
+            total_train_steps = self.train_steps
+        (
+            model_params,
+            model_opt_state,
+            alpha,
+            summary,
+        ) = \
+            self.dynamics_model._train_step(
+                tran=transitions,
+                model_params=model_params,
+                model_opt_state=model_opt_state,
+                rng=train_rng,
+                num_steps=total_train_steps,
+            )
+        self.update_models(model_params=model_params, model_opt_state=model_opt_state, alpha=alpha)
+        return total_train_steps
 
     def train_step(self,
                    rng: jax.Array,
                    buffer: ReplayBuffer,
+                   buffer_state: BufferState,
                    validate: bool = True,
                    log_results: bool = True,
                    ) -> int:
@@ -169,87 +200,65 @@ class ModelBasedAgent(DummyAgent):
         Training of model based agent
         :param rng: jax.Array, random key
         :param buffer: ReplayBuffer, buffer of collected transition
+        :param buffer_state: BufferState, current state (data) of the buffer to sample from
         :param validate: bool, boolean for validating model
         :param log_results: bool, boolean to indicate logging of training results.
-        :return total_train_steps: int, total number of training steps done for the model
+        :return
         """
-        # if its a GP fit the model with all transitions
-        if self.is_gp:
-            transitions = buffer.get_full_normalized_data()
-            train_rng, rng = jax.random.split(rng, 2)
+        self.buffer_state = buffer_state
+
+        # perform train steps on the NN model.
+        max_train_steps_per_iter = 8000
+        if self.num_epochs > 0:
+            total_train_steps = math.ceil(self.buffer_state.size * self.num_epochs / self.batch_size)
+        else:
+            total_train_steps = self.train_steps
+        self.update_steps += 1
+        total_train_steps = min(total_train_steps, self.max_train_steps)
+        train_loops = math.ceil(total_train_steps / max_train_steps_per_iter)
+        train_steps = min(max_train_steps_per_iter, total_train_steps)
+        train_loops = max(train_loops, 1)
+        if self.reset_model:
             model_params = self.dynamics_model.init_model_params
             model_opt_state = self.dynamics_model.init_model_opt_state
-            alpha = jnp.ones(self.observation_space.shape)
-            if self.num_epochs > 0:
-                total_train_steps = math.ceil(buffer.size * self.num_epochs)
-            else:
-                total_train_steps = self.train_steps
-            (
-                model_params,
-                model_opt_state,
-                alpha,
-                summary,
-            ) = \
-                self.dynamics_model._train_step(
-                    tran=transitions,
-                    model_params=model_params,
-                    model_opt_state=model_opt_state,
-                    rng=train_rng,
-                    num_steps=total_train_steps,
-                )
         else:
-            # perform train steps on the NN model.
-            max_train_steps_per_iter = 8000
-            if self.num_epochs > 0:
-                total_train_steps = math.ceil(buffer.size * self.num_epochs / self.batch_size)
-            else:
-                total_train_steps = self.train_steps
-            self.update_steps += 1
-            total_train_steps = min(total_train_steps, self.max_train_steps)
-            train_loops = math.ceil(total_train_steps / max_train_steps_per_iter)
-            train_steps = min(max_train_steps_per_iter, total_train_steps)
-            train_loops = max(train_loops, 1)
-            if self.reset_model:
-                model_params = self.dynamics_model.init_model_params
+            model_params = self.dynamics_model.model_params
+            if self.reset_model_opt_state:
                 model_opt_state = self.dynamics_model.init_model_opt_state
             else:
-                model_params = self.dynamics_model.model_params
-                if self.reset_model_opt_state:
-                    model_opt_state = self.dynamics_model.init_model_opt_state
-                else:
-                    model_opt_state = self.dynamics_model.model_opt_state
-            alpha = jnp.ones(self.observation_space.shape)
+                model_opt_state = self.dynamics_model.model_opt_state
+        alpha = jnp.ones(self.observation_space.shape)
 
-            for i in range(train_loops):
-                train_rng, rng = jax.random.split(rng, 2)
-                transitions = buffer.sample(train_rng, batch_size=int(self.batch_size * train_steps))
-                transitions = transitions.reshape(train_steps, self.batch_size)
-                val_transitions = None
-                if validate:
-                    train_rng, val_rng = jax.random.split(train_rng, 2)
-                    val_transitions = buffer.sample(val_rng, batch_size=int(self.batch_size * train_steps))
-                    val_transitions = val_transitions.reshape(train_steps, self.batch_size)
-                carry = [
-                    train_rng,
-                    alpha,
-                    model_params,
-                    model_opt_state,
-                ]
-                ins = [transitions, val_transitions]
-                carry, outs = jax.lax.scan(self.step, carry, ins, length=train_steps)
-                model_params = carry[2]
-                model_opt_state = carry[3]
-                alpha = carry[1]
-                summary = outs[0]
-                if log_results:
-                    if self.log_full_training:
-                        for i in range(total_train_steps):
-                            wandb.log(get_idx(summary, i).dict())
-                    else:
-                        for i in range(0, total_train_steps, 10):
-                            wandb.log(get_idx(summary, i).dict())
-            if self.calibrate_model:
-                alpha = carry[1]
+        for i in range(train_loops):
+            train_rng, rng = jax.random.split(rng, 2)
+            transitions = buffer.sample(train_rng, self.buffer_state, batch_size=int(self.batch_size * train_steps))
+            transitions = transitions.reshape(train_steps, self.batch_size)
+            val_transitions = None
+            if validate:
+                train_rng, val_rng = jax.random.split(train_rng, 2)
+                val_transitions = buffer.sample(val_rng, self.buffer_state, batch_size=int(self.batch_size * train_steps))
+                val_transitions = val_transitions.reshape(train_steps, self.batch_size)
+            carry = [
+                train_rng,
+                alpha,
+                model_params,
+                model_opt_state,
+            ]
+            ins = [transitions, val_transitions]
+            carry, outs = jax.lax.scan(self.step, carry, ins, length=train_steps)
+            model_params = carry[2]
+            model_opt_state = carry[3]
+            alpha = carry[1]
+            summary = outs[0]
+            if log_results:
+                if self.log_full_training:
+                    for i in range(total_train_steps):
+                        wandb.log(get_idx(summary, i).dict())
+                else:
+                    for i in range(0, total_train_steps, 10):
+                        wandb.log(get_idx(summary, i).dict())
+        if self.calibrate_model:
+            alpha = carry[1]
         self.update_models(model_params=model_params, model_opt_state=model_opt_state, alpha=alpha)
         return total_train_steps
 
@@ -283,13 +292,12 @@ class ModelBasedAgent(DummyAgent):
         )
 
     def update_models(self, model_params: PyTree, model_opt_state: PyTree, alpha: Union[float, jax.Array] = 1.0):
-        """Update model for params."""
         for i in range(len(self.dynamics_model_list)):
-            self.dynamics_model_list[i].update_model(
-                model_params=model_params,
-                model_opt_state=model_opt_state,
-                alpha=alpha,
-            )
+            self.dynamics_model_list[i].update_model(model_params=model_params,
+                                                     model_opt_state=model_opt_state,
+                                                     alpha=alpha,
+                                                     model_props=self.dynamics_model_list[i].model_props)
+        
 
     @property
     def dynamics_model(self) -> DynamicsModel:
@@ -300,7 +308,11 @@ class ModelBasedAgent(DummyAgent):
         return self.update_steps < self.reset_optimizer_params_for
 
     def prepare_agent_for_rollout(self):
-        self.policy_optimizer.reset()
+        # DummyPolicyOptimizer.reset() is a no-op; the iCEM warm-start state
+        # now lives on the agent (self.best_sequences), so resetting it for
+        # a fresh rollout means restoring it to the optimizer's initial
+        # template rather than calling into the optimizer.
+        self.best_sequences = self.policy_optimizer.best_sequences
 
     def update_posterior(self, buffer: ReplayBuffer):
         for i in range(len(self.dynamics_model_list)):

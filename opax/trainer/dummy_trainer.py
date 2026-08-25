@@ -1,10 +1,12 @@
 import jax
-from opax.utils.replay_buffer import Transition, ReplayBuffer
+from opax.utils.replay_buffer import Transition, BufferState
+from opax.utils.replay_buffer import JaxReplayBuffer as ReplayBuffer
 from opax.agents.dummy_agent import DummyAgent
 from typing import Callable, Optional, Union
 import wandb
 from copy import deepcopy
 import numpy as np
+import jax.numpy as jnp
 from opax.utils.vec_env import VecEnv
 from tqdm import tqdm
 from gymnasium.wrappers import RecordVideo
@@ -78,6 +80,8 @@ class DummyTrainer(object):
             learn_deltas=learn_deltas
         )
         self.buffer_size = buffer_size
+        
+        self.buffer_state = self.buffer.initialize_buffer_state()
 
         self.eval_episodes = eval_episodes
         self.agent_name = agent_name
@@ -190,17 +194,21 @@ class DummyTrainer(object):
 
             for i, model in enumerate(self.agent.dynamics_model_list):
                 alpha = getattr(restored["model_props"][i], "alpha", 1.0)
-                model.update_model(
+                model.model_props = restored["model_props"][i] = model.update_model(
                     model_params=restored["model_params"][i],
                     model_opt_state=restored["model_opt_state"][i],
                     alpha=alpha,
+                    model_props=restored["model_props"][i]
                 )
-                model.model_props = restored["model_props"][i]
-
+                
             if "update_steps" in restored:
                 self.agent.update_steps = restored["update_steps"]
         else:
             raise NotImplementedError("load_agent is currently only implemented for ModelBasedAgent.")
+
+    
+
+        
 
     def step_env(self, obs: Union[jax.Array, np.ndarray], policy: Callable, num_steps: int,
                  rng: jax.Array) -> [Transition, Union[jax.Array, np.ndarray],
@@ -213,34 +221,35 @@ class DummyTrainer(object):
         :param rng: random key for rollout
         :return: transitions, last_obs, last_done
         """
+        def step_body(carry, step_rng):
+            obs, env_state, best_sequences = carry
+            act_rng, step_rng = jax.random.split(step_rng)
+            action, best_sequences = policy(obs, act_rng, best_sequences) #get policy in scope while compiling internal function
+            next_obs, next_state, reward, done = self.env.pure_step(step_rng, env_state, action)
+            return (next_obs, next_state, best_sequences), (obs, action, next_obs, reward, done)
+
         self.agent.prepare_agent_for_rollout()
-        rng, reset_rng = jax.random.split(rng, 2)
+        step_rngs = jax.random.split(rng, num_steps)
+        (last_obs, last_state, last_best_sequences), (obs_sequence, action_sequence,
+                                    next_obs_sequence, reward_sequence,
+                                    dones) = jax.lax.scan(step_body, (obs, self.env._state, self.agent.best_sequences), step_rngs)
+
+        self.env._state = last_state #update the env with the result of the pure function
+        # unlike better_eval_policy (which discards the per-episode warm-start
+        # state so eval never perturbs training), step_env's whole point is to
+        # continue the real rollout across calls, so the final warm-start
+        # state is persisted the same way the env state is.
+        self.agent.best_sequences = last_best_sequences
+        
+        #reshape the jax laxed stuff (which includes a vmap over envs) into vectors of transitions 
         num_points = int(num_steps * self.num_envs)
-        obs_shape = (num_points,) + self.env.observation_space.shape
-        action_space = (num_points,) + self.env.action_space.shape
-        obs_vec = np.zeros(obs_shape)
-        action_vec = np.zeros(action_space)
-        reward_vec = np.zeros((num_points,))
-        next_obs_vec = np.zeros(obs_shape)
-        done_vec = np.zeros((num_points,))
-        next_rng = rng
-        last_obs = obs
-        last_done = False
-        for step in range(num_steps):
-            next_rng, actor_rng = jax.random.split(next_rng, 2)
-            action = policy(obs, actor_rng)
-            next_obs, reward, terminate, truncate, info = self.env.step(action)
-
-            obs_vec[step * self.num_envs: (step + 1) * self.num_envs] = obs
-            action_vec[step * self.num_envs: (step + 1) * self.num_envs] = action
-            reward_vec[step * self.num_envs: (step + 1) * self.num_envs] = reward.reshape(-1)
-            next_obs_vec[step * self.num_envs: (step + 1) * self.num_envs] = next_obs
-            done_vec[step * self.num_envs: (step + 1) * self.num_envs] = terminate.reshape(-1)
-            obs = np.concatenate([x['current_env_state'].reshape(1, -1) for x in info], axis=0)
-            dones = np.concatenate([np.asarray(x['last_done']).reshape(1, -1) for x in info], axis=0)
-
-            last_obs = obs
-            last_done = dones
+        obs_vec = jnp.reshape(obs_sequence,(num_points,) + self.env.observation_space.shape ,order="F") #concatenate them env by env
+        action_vec = jnp.reshape(action_sequence,(num_points,) + self.env.action_space.shape ,order="F")
+        reward_vec = jnp.reshape(reward_sequence,(num_points,1), order="F")
+        next_obs_vec = jnp.reshape(next_obs_sequence,(num_points,) + self.env.observation_space.shape ,order="F") 
+        done_vec = jnp.reshape(dones,(num_points,1), order="F") 
+        
+        
         transitions = Transition(
             obs=obs_vec,
             action=action_vec,
@@ -248,7 +257,9 @@ class DummyTrainer(object):
             next_obs=next_obs_vec,
             done=done_vec,
         )
-        return transitions, last_obs, last_done
+        
+        
+        return transitions, last_obs, dones[-1]
 
     def rollout_policy(self, num_steps: int, policy: Callable, rng: jax.Array) -> Transition:
         """
@@ -266,40 +277,26 @@ class DummyTrainer(object):
             minval=0,
             maxval=num_steps).item()
         obs, _ = self.env.reset(seed=reset_seed)
-        num_points = int(num_steps * self.num_envs)
-        obs_shape = (num_points,) + self.env.observation_space.shape
-        action_space = (num_points,) + self.env.action_space.shape
-        obs_vec = np.zeros(obs_shape)
-        action_vec = np.zeros(action_space)
-        reward_vec = np.zeros((num_points,))
-        next_obs_vec = np.zeros(obs_shape)
-        done_vec = np.zeros((num_points,))
-        next_rng = rng
-        for step in range(num_steps):
-            next_rng, actor_rng = jax.random.split(next_rng, 2)
-            action = policy(obs, actor_rng)
-            next_obs, reward, terminate, truncate, info = self.env.step(action)
+        step_rngs = jax.random.split(rng, num_steps)
 
-            obs_vec[step * self.num_envs: (step + 1) * self.num_envs] = obs
-            action_vec[step * self.num_envs: (step + 1) * self.num_envs] = action
-            reward_vec[step * self.num_envs: (step + 1) * self.num_envs] = reward.reshape(-1)
-            next_obs_vec[step * self.num_envs: (step + 1) * self.num_envs] = next_obs
-            done_vec[step * self.num_envs: (step + 1) * self.num_envs] = terminate.reshape(-1)
-            # obs_vec = obs_vec.at[step].set(jnp.asarray(obs))
-            # action_vec = action_vec.at[step].set(jnp.asarray(action))
-            # reward_vec = reward_vec.at[step].set(jnp.asarray(reward))
-            # next_obs_vec = next_obs_vec.at[step].set(jnp.asarray(next_obs))
-            # done_vec = done_vec.at[step].set(jnp.asarray(terminate))
-            obs = np.concatenate([x['current_env_state'].reshape(1, -1) for x in info], axis=0)
-            # for idx, done in enumerate(dones):
-            #    if done:
-            #        reset_rng, next_reset_rng = jax.random.split(reset_rng, 2)
-            #        reset_seed = jax.random.randint(
-            #            reset_rng,
-            #            (1,),
-            #            minval=0,
-            #            maxval=num_steps).item()
-            #        obs[idx], _ = self.env.reset(seed=reset_seed)
+        #carry holds state from previous step, step_rng is an array of RNG keys to scan over
+        def step_body(carry, step_rng):
+            obs, env_state, best_sequences = carry
+            act_rng, step_rng = jax.random.split(step_rng)
+            action, best_sequences = policy(obs, act_rng, best_sequences)
+            next_obs, next_state, reward, done = self.env.pure_step(step_rng, env_state, action)
+            return (next_obs, next_state, best_sequences), (obs, action, next_obs, reward, done)
+
+        (last_obs, last_state, last_best_sequences), (obs_sequence, action_sequence,
+                                 next_obs_sequence, reward_sequence, dones) = jax.lax.scan(
+            step_body, (obs, self.env._state, self.agent.best_sequences), step_rngs)
+
+        num_points = int(num_steps * self.num_envs)
+        obs_vec = jnp.reshape(obs_sequence,(num_points,) + self.env.observation_space.shape ,order="F") #concatenate them env by env
+        action_vec = jnp.reshape(action_sequence,(num_points,) + self.env.action_space.shape ,order="F")
+        reward_vec = jnp.reshape(reward_sequence,(num_points,1), order="F")
+        next_obs_vec = jnp.reshape(next_obs_sequence,(num_points,) + self.env.observation_space.shape ,order="F") 
+        done_vec = jnp.reshape(dones,(num_points,1), order="F") 
 
         transitions = Transition(
             obs=obs_vec,
@@ -316,6 +313,50 @@ class DummyTrainer(object):
         obs, _ = self.env.reset(seed=reset_seed)
         return transitions
 
+    def better_eval_policy(self, rng: jax.Array) -> dict:
+        self.agent.prepare_agent_for_rollout()
+        evaluations = jnp.zeros(self.eval_episodes)
+        reward_log = {}
+        
+        for env_index, env in enumerate(self.test_env):
+            episode_rngs = jax.random.split(rng, self.eval_episodes)
+                    
+            def step_body(carry, rng):
+                obs, env_state, best_sequences, done = carry
+                act_rng, env_rng = jax.random.split(rng)
+                action, new_best_sequences = self.agent.act_in_jax(obs, act_rng, best_sequences, eval=True, eval_idx=env_index)
+                next_obs, next_state, reward, env_done = env.pure_step(env_rng, env_state, action)
+                #convert the array given by logical_or to a scalar bool that can be read by lax.cond
+                done = jax.lax.cond(jnp.logical_or(done, env_done).reshape(), lambda: 1, lambda: 0)
+                return (next_obs, next_state, new_best_sequences, done), (obs, action, next_obs, reward, done)
+                
+                
+            #takes in an rng, returns the average reward from the environment
+            #might break if the env is not compilable
+            def evaluate_one_episode(rng, best_sequences):
+                reset_key, subkey = jax.random.split(rng)
+                obs, initial_state = env.pure_reset(reset_key)
+                step_rngs = jax.random.split(subkey, env.time_limit)
+                #scan over steps: remove the ones after termination/truncation in calculating the average
+                #using best_sequences here isn't bad because it's only read, never written
+                (last_obs, last_state, best_sequences, ever_terminated), (obs_sequence, action_sequence, 
+                                         next_obs_sequence, reward_sequence, 
+                                         done_sequence) = jax.lax.scan(step_body, (obs, initial_state, best_sequences, 0), step_rngs)
+                
+                #calculate the actual average of rewards before dones
+                steps_before_termination = jnp.shape(done_sequence)[0] - jnp.count_nonzero(done_sequence)
+                cumulative_reward = jnp.sum(jnp.where(done_sequence - 1, reward_sequence, jnp.zeros(jnp.shape(done_sequence))))
+                return cumulative_reward/steps_before_termination
+                
+            evaluate_one_env = jax.vmap(evaluate_one_episode, in_axes=[0, None])
+        
+            average_rewards = jnp.mean(evaluate_one_env(episode_rngs, self.agent.best_sequences))
+            final_reward_average = jnp.mean(average_rewards)
+            reward_log[f"reward_task_{env_index}"] = final_reward_average
+            
+        return reward_log
+        
+
     def eval_policy(self, step: int = 0, rng: Optional[jax.Array] = None) -> dict:
         """
         Evaluates policy in the environment till it is done.
@@ -328,6 +369,7 @@ class DummyTrainer(object):
 
         }
         self.agent.prepare_agent_for_rollout()
+        print(self.test_env)
         for i, env in enumerate(self.test_env):
             pbar = tqdm()
             avg_reward = 0.0
