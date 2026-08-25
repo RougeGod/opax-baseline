@@ -167,7 +167,14 @@ class ModelBasedTrainer(DummyTrainer):
 
         # returns policy used for random exploration
         #may need to be changed based on the env but I think the actions are always clipped to [-1,1] for normalization?
-        exploration_policy = lambda x, y: jax.random.uniform(self.rng, self.action_shape, minval=-1.0, maxval=1.0)
+        # best_sequences is passed through unchanged: random exploration doesn't
+        # touch the iCEM warm-start state, but every policy callable passed to
+        # step_env/rollout_policy needs the same (obs, rng, best_sequences) ->
+        # (action, best_sequences) shape so those methods can stay agnostic to
+        # which kind of policy they were given.
+        exploration_policy = lambda obs, rng, best_sequences: (
+            jax.random.uniform(rng, self.action_shape, minval=-1.0, maxval=1.0), best_sequences
+        )
         # collect data with the random policy
         policy = exploration_policy
         self.rng, explore_rng = random.split(self.rng, 2)
@@ -189,7 +196,7 @@ class ModelBasedTrainer(DummyTrainer):
         obs, _ = self.env.reset(seed=reset_seed)
         step = 0
         for step in tqdm(range(learning_steps)):
-            
+            print("Step: {step}")
             # collect rollouts with policy
             actor_rng, train_rng = random.split(rng_keys[step], 2)
             policy = self.agent.act_in_train if not self.uniform_exploration else exploration_policy
@@ -242,7 +249,7 @@ class ModelBasedTrainer(DummyTrainer):
                 train_log.update(train_step_log)
                 train_log.update(reward_log)
                 train_log.update(model_log)
-                scalar_dict = {'scale_out': np.mean(self.buffer.next_state_normalizer.std).astype(float).item()}
+                #scalar_dict = {'scale_out': np.mean(self.buffer.next_state_normalizer.std).astype(float).item()}
                 # scaler_dict = {
                 #     'bias_obs': np.mean(self.buffer.state_normalizer.mean).astype(float).item(),
                 #     'bias_act': np.mean(self.buffer.action_normalizer.mean).astype(float).item(),
@@ -251,7 +258,7 @@ class ModelBasedTrainer(DummyTrainer):
                 #     'scale_act': np.mean(self.buffer.action_normalizer.std).astype(float).item(),
                 #     'scale_out': np.mean(self.buffer.next_state_normalizer.std).astype(float).item(),
                 # }
-                train_log.update(scalar_dict)
+                #train_log.update(scalar_dict)
                 wandb.log(train_log)
                 wandb.log(self.agent.dynamics_model.get_dynamics_mae(rng=self.rng))
             # step += 1

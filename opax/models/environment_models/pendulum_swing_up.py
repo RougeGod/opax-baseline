@@ -141,6 +141,7 @@ class CustomPendulumEnv(PendulumEnv):
         reward = -costs
         return next_obs, reward, terminate, truncate, output_dict
 
+        
 
 class PendulumSwingUpEnv(PendulumEnv):
     """Pendulum Swing-up Environment."""
@@ -196,7 +197,6 @@ class PendulumSwingUpEnv(PendulumEnv):
     def reward_model(self):
         """Get reward model."""
         return self._reward_model
-
 
 class PendulumDynamicsModel(DynamicsModel):
     def __init__(self, env: PendulumEnv, ctrl_cost_weight=0.001, sparse=False, *args, **kwargs):

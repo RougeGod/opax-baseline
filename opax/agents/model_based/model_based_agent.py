@@ -86,6 +86,10 @@ class ModelBasedAgent(DummyAgent):
         self.reset_optimizer_params_for = reset_optimizer_params_for
         self.update_steps = 0
         self.buffer_state: Optional[BufferState] = None
+        # Agent-owned copy of the iCEM warm-start state. Owned here (not by
+        # self.policy_optimizer) so act_in_jax can thread it through as an
+        # explicit input/output instead of mutating it in place mid-trace.
+        self.best_sequences = self.policy_optimizer.best_sequences
         self.log_agent_training = log_agent_training
         self.log_full_training = log_full_training
         if init_function:
@@ -124,42 +128,38 @@ class ModelBasedAgent(DummyAgent):
             return carry, outs
 
         self.step = jax.jit(step)
+        
+    @jax.jit(static_argnames=["self", "eval", "eval_idx"])
+    def act_in_jax(self, obs: jax.Array, rng: jax.Array, best_sequences, eval: bool = False, eval_idx: int = 0):
+        """Optimize for an action sequence via MPC and take its first action.
 
-    def act_in_jax(self, obs: jax.Array, rng: jax.Array, eval: bool = False, eval_idx: int = 0):
-        # optimize for actions and take the first best one --> MPC
+        needs to take the model's current best_sequences to avoid tracer leaks and 
+        the new optimizer state (best_sequences) gets written explicitly to the return
+        """
         if eval:
-            dim_state = obs.shape[-1]
-            obs = obs.reshape(-1, dim_state)
-            n_envs = obs.shape[0]
-            rollout_rng, optimizer_rng = jax.random.split(rng, 2)
-            rollout_rng = jax.random.split(rollout_rng, n_envs)
-            optimizer_rng = jax.random.split(optimizer_rng, n_envs)
+            obs = obs.reshape(-1, obs.shape[-1])
             optimize_fn = self.policy_optimizer.optimize_for_eval_fns[eval_idx]
-            action_sequence, best_reward = optimize_fn(
-                dynamics_params=self.dynamics_model.model_params,
-                obs=obs,
-                key=rollout_rng,
-                optimizer_key=optimizer_rng,
-                model_props=self.dynamics_model.model_props,
-            )
-            action = action_sequence[:, 0, ...]
-            if action.shape[0] == 1:
-                action = action.squeeze(0)
         else:
-            n_envs = obs.shape[0]
-            rollout_rng, optimizer_rng = jax.random.split(rng, 2)
-            rollout_rng = jax.random.split(rollout_rng, n_envs)
-            optimizer_rng = jax.random.split(optimizer_rng, n_envs)
-            action_sequence, best_reward = self.policy_optimizer.optimize_for_exploration(
-                    dynamics_params=self.dynamics_model.model_params,
-                    obs=obs,
-                    key=rollout_rng,
-                    optimizer_key=optimizer_rng,
-                    model_props=self.dynamics_model.model_props,
-                )
-            action = action_sequence[:, 0, ...]
+            optimize_fn = self.policy_optimizer.optimize_for_exploration
+
+        n_envs = obs.shape[0]
+        rollout_rng, optimizer_rng = jax.random.split(rng, 2)
+        rollout_rng = jax.random.split(rollout_rng, n_envs)
+        optimizer_rng = jax.random.split(optimizer_rng, n_envs)
+
+        action_sequence, best_reward, new_best_sequences = optimize_fn(
+            dynamics_params=self.dynamics_model.model_params,
+            obs=obs,
+            best_sequences=best_sequences,
+            key=rollout_rng,
+            optimizer_key=optimizer_rng,
+            model_props=self.dynamics_model.model_props,
+        )
+        action = action_sequence[:, 0, ...]
+        if eval and action.shape[0] == 1:
+            action = action.squeeze(0)
         action = action[..., :self.action_space.shape[0]]
-        return action
+        return action, new_best_sequences
 
 
     def train_step_gp(self, rng: jax.Array, buffer: ReplayBuffer, validate: bool=True,
@@ -295,7 +295,8 @@ class ModelBasedAgent(DummyAgent):
         for i in range(len(self.dynamics_model_list)):
             self.dynamics_model_list[i].update_model(model_params=model_params,
                                                      model_opt_state=model_opt_state,
-                                                     alpha=alpha)
+                                                     alpha=alpha,
+                                                     model_props=self.dynamics_model_list[i].model_props)
         
 
     @property
@@ -307,7 +308,11 @@ class ModelBasedAgent(DummyAgent):
         return self.update_steps < self.reset_optimizer_params_for
 
     def prepare_agent_for_rollout(self):
-        self.policy_optimizer.reset()
+        # DummyPolicyOptimizer.reset() is a no-op; the iCEM warm-start state
+        # now lives on the agent (self.best_sequences), so resetting it for
+        # a fresh rollout means restoring it to the optimizer's initial
+        # template rather than calling into the optimizer.
+        self.best_sequences = self.policy_optimizer.best_sequences
 
     def update_posterior(self, buffer: ReplayBuffer):
         for i in range(len(self.dynamics_model_list)):

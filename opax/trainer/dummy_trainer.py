@@ -222,19 +222,24 @@ class DummyTrainer(object):
         :return: transitions, last_obs, last_done
         """
         def step_body(carry, step_rng):
-            obs, env_state = carry
+            obs, env_state, best_sequences = carry
             act_rng, step_rng = jax.random.split(step_rng)
-            action = policy(obs, act_rng) #get policy in scope while compiling internal function
+            action, best_sequences = policy(obs, act_rng, best_sequences) #get policy in scope while compiling internal function
             next_obs, next_state, reward, done = self.env.pure_step(step_rng, env_state, action)
-            return (next_obs, next_state), (obs, action, next_obs, reward, done)        
-        
+            return (next_obs, next_state, best_sequences), (obs, action, next_obs, reward, done)
+
         self.agent.prepare_agent_for_rollout()
         step_rngs = jax.random.split(rng, num_steps)
-        (last_obs, last_state), (obs_sequence, action_sequence,
+        (last_obs, last_state, last_best_sequences), (obs_sequence, action_sequence,
                                     next_obs_sequence, reward_sequence,
-                                    dones) = jax.lax.scan(step_body, (obs, self.env._state), step_rngs)
-                                    
+                                    dones) = jax.lax.scan(step_body, (obs, self.env._state, self.agent.best_sequences), step_rngs)
+
         self.env._state = last_state #update the env with the result of the pure function
+        # unlike better_eval_policy (which discards the per-episode warm-start
+        # state so eval never perturbs training), step_env's whole point is to
+        # continue the real rollout across calls, so the final warm-start
+        # state is persisted the same way the env state is.
+        self.agent.best_sequences = last_best_sequences
         
         #reshape the jax laxed stuff (which includes a vmap over envs) into vectors of transitions 
         num_points = int(num_steps * self.num_envs)
@@ -272,17 +277,19 @@ class DummyTrainer(object):
             minval=0,
             maxval=num_steps).item()
         obs, _ = self.env.reset(seed=reset_seed)
+        step_rngs = jax.random.split(rng, num_steps)
 
         #carry holds state from previous step, step_rng is an array of RNG keys to scan over
         def step_body(carry, step_rng):
-            obs, env_state = carry
+            obs, env_state, best_sequences = carry
             act_rng, step_rng = jax.random.split(step_rng)
-            action = policy(obs, act_rng)
+            action, best_sequences = policy(obs, act_rng, best_sequences)
             next_obs, next_state, reward, done = self.env.pure_step(step_rng, env_state, action)
-            return (next_obs, next_state), (obs, action, next_obs, reward, done)
-            
-        (last_obs, last_state), (obs_sequence, action_sequence, 
-                                 next_obs_sequence, reward_sequence, dones) = jax.lax.scan(step_body, (obs, self.env._state), step_rngs)
+            return (next_obs, next_state, best_sequences), (obs, action, next_obs, reward, done)
+
+        (last_obs, last_state, last_best_sequences), (obs_sequence, action_sequence,
+                                 next_obs_sequence, reward_sequence, dones) = jax.lax.scan(
+            step_body, (obs, self.env._state, self.agent.best_sequences), step_rngs)
 
         num_points = int(num_steps * self.num_envs)
         obs_vec = jnp.reshape(obs_sequence,(num_points,) + self.env.observation_space.shape ,order="F") #concatenate them env by env
@@ -303,48 +310,48 @@ class DummyTrainer(object):
             (1,),
             minval=0,
             maxval=num_steps).item()
-        obs, _ = self.env.reset_env(seed=reset_seed)
+        obs, _ = self.env.reset(seed=reset_seed)
         return transitions
 
     def better_eval_policy(self, rng: jax.Array) -> dict:
         self.agent.prepare_agent_for_rollout()
         evaluations = jnp.zeros(self.eval_episodes)
+        reward_log = {}
         
         for env_index, env in enumerate(self.test_env):
             episode_rngs = jax.random.split(rng, self.eval_episodes)
                     
             def step_body(carry, rng):
-                obs, env_state, done = carry
+                obs, env_state, best_sequences, done = carry
                 act_rng, env_rng = jax.random.split(rng)
-                action = jnp.zeros(1, dtype=jnp.float32)#self.agent.act_in_jax(obs, act_rng, eval=True, eval_idx=env_index)
+                action, new_best_sequences = self.agent.act_in_jax(obs, act_rng, best_sequences, eval=True, eval_idx=env_index)
                 next_obs, next_state, reward, env_done = env.pure_step(env_rng, env_state, action)
                 #convert the array given by logical_or to a scalar bool that can be read by lax.cond
                 done = jax.lax.cond(jnp.logical_or(done, env_done).reshape(), lambda: 1, lambda: 0)
-                return (next_obs, next_state, done), (obs, action, next_obs, reward, done)
+                return (next_obs, next_state, new_best_sequences, done), (obs, action, next_obs, reward, done)
                 
                 
             #takes in an rng, returns the average reward from the environment
             #might break if the env is not compilable
-            def evaluate_one_episode(rng):
+            def evaluate_one_episode(rng, best_sequences):
                 reset_key, subkey = jax.random.split(rng)
                 obs, initial_state = env.pure_reset(reset_key)
                 step_rngs = jax.random.split(subkey, env.time_limit)
                 #scan over steps: remove the ones after termination/truncation in calculating the average
-                (last_obs, last_state, ever_terminated), (obs_sequence, action_sequence, 
+                #using best_sequences here isn't bad because it's only read, never written
+                (last_obs, last_state, best_sequences, ever_terminated), (obs_sequence, action_sequence, 
                                          next_obs_sequence, reward_sequence, 
-                                         done_sequence) = jax.lax.scan(step_body, (obs, initial_state, 0), step_rngs)
+                                         done_sequence) = jax.lax.scan(step_body, (obs, initial_state, best_sequences, 0), step_rngs)
                 
                 #calculate the actual average of rewards before dones
                 steps_before_termination = jnp.shape(done_sequence)[0] - jnp.count_nonzero(done_sequence)
                 cumulative_reward = jnp.sum(jnp.where(done_sequence - 1, reward_sequence, jnp.zeros(jnp.shape(done_sequence))))
                 return cumulative_reward/steps_before_termination
                 
-            evaluate_one_env = jax.vmap(evaluate_one_episode)
+            evaluate_one_env = jax.vmap(evaluate_one_episode, in_axes=[0, None])
         
-
-            average_rewards = jnp.mean(evaluate_one_env(episode_rngs))
+            average_rewards = jnp.mean(evaluate_one_env(episode_rngs, self.agent.best_sequences))
             final_reward_average = jnp.mean(average_rewards)
-            reward_log = {}
             reward_log[f"reward_task_{env_index}"] = final_reward_average
             
         return reward_log
