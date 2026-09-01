@@ -385,7 +385,7 @@ if __name__ == '__main__':
     # agent experiment args
     parser.add_argument('--discount', type=float, default=1.0)
     parser.add_argument('--n_particles', type=int, default=10)
-    parser.add_argument('--reset_model', default=True, action="store_true")
+    parser.add_argument('--reset_model', default=False, action="store_true")
 
     # dynamics_model experiment args
     parser.add_argument('--num_ensembles', type=int, default=5)
