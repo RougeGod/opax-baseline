@@ -87,6 +87,29 @@ class ModelBasedTrainer(DummyTrainer):
             #                                  )
             self.validation_buffer_state = self.validation_buffer.add(transitions, self.validation_buffer_state)
 
+    @staticmethod
+    @jax.jit(static_argnames=["is_gp"])
+    def get_validation_stats(mean_prediction, std_prediction, is_gp):
+        if is_gp:
+            eps_uncertainty = std_prediction
+            al_uncertainty = jnp.ones_like(std_prediction) * 0.001
+        else:
+            eps_uncertainty = jnp.std(mean_prediction, axis=0)
+            al_uncertainty = jnp.sqrt(jnp.mean(jnp.square(std_prediction), axis=0))
+        frac = eps_uncertainty / (al_uncertainty + 1e-6)
+        information_gain = jnp.sum(jnp.log(1 + jnp.square(frac)), axis=-1)
+        max_info_gain = jnp.max(information_gain)
+        mean_info_gain = jnp.mean(information_gain)
+        eps_uncertainty = jnp.sum(eps_uncertainty, axis=-1)
+        mean_eps_uncertainty = jnp.mean(eps_uncertainty)
+        max_eps_uncertainty = jnp.max(eps_uncertainty)
+        std_eps_uncertainty = jnp.std(eps_uncertainty)
+        std_pred = jnp.mean(jnp.sum(al_uncertainty, axis=-1))        
+        return eps_uncertainty, al_uncertainty, frac, information_gain, max_info_gain, \
+               mean_info_gain, eps_uncertainty, mean_eps_uncertainty, max_eps_uncertainty, \
+               std_eps_uncertainty, std_pred
+            
+
     def validate_model(self, rng: jax.Array) -> dict:
         """
         Validates learned dynamics model
@@ -101,21 +124,10 @@ class ModelBasedTrainer(DummyTrainer):
                 batch_size=self.validation_batch_size,
             )
             mean_pred, std_pred = self.agent.predict_next_state(val_tran)
-            if self.agent.is_gp:
-                eps_uncertainty = std_pred
-                al_uncertainty = jnp.ones_like(std_pred) * 1e-3
-            else:
-                eps_uncertainty = jnp.std(mean_pred, axis=0)
-                al_uncertainty = jnp.sqrt(jnp.mean(jnp.square(std_pred), axis=0))
-            frac = eps_uncertainty / (al_uncertainty + 1e-6)
-            information_gain = jnp.sum(jnp.log(1 + jnp.square(frac)), axis=-1)
-            max_info_gain = jnp.max(information_gain)
-            mean_info_gain = jnp.mean(information_gain)
-            eps_uncertainty = jnp.sum(eps_uncertainty, axis=-1)
-            mean_eps_uncertainty = jnp.mean(eps_uncertainty)
-            max_eps_uncertainty = jnp.max(eps_uncertainty)
-            std_eps_uncertainty = jnp.std(eps_uncertainty)
-            std_pred = jnp.mean(jnp.sum(al_uncertainty, axis=-1))
+            eps_uncertainty, al_uncertainty, frac, information_gain, max_info_gain, \
+            mean_info_gain, eps_uncertainty, mean_eps_uncertainty, max_eps_uncertainty, \
+            std_eps_uncertainty, std_pred = self.get_validation_stats(mean_pred, std_pred, self.agent.is_gp)
+
             # y_true = val_tran.next_obs
             # mse = jnp.mean(jnp.sum(jnp.square(y_true - mean_pred), axis=-1))
             model_log = {
@@ -163,7 +175,10 @@ class ModelBasedTrainer(DummyTrainer):
             reward_log.update(model_log)
             wandb.log(reward_log)
             #get the dynamics MAE before any learning
-            wandb.log(self.agent.dynamics_model.get_dynamics_mae(rng=self.rng))
+            #wandb.log({
+            #    'env_steps': 0,
+            #    **self.agent.dynamics_model.get_dynamics_mae(rng=self.rng),
+            #})
 
         # returns policy used for random exploration
         #may need to be changed based on the env but I think the actions are always clipped to [-1,1] for normalization?
@@ -196,7 +211,7 @@ class ModelBasedTrainer(DummyTrainer):
         obs, _ = self.env.reset(seed=reset_seed)
         step = 0
         for step in tqdm(range(learning_steps)):
-            print("Step: {step}")
+            print(f"Step: {step}")
             # collect rollouts with policy
             actor_rng, train_rng = random.split(rng_keys[step], 2)
             policy = self.agent.act_in_train if not self.uniform_exploration else exploration_policy
@@ -260,7 +275,10 @@ class ModelBasedTrainer(DummyTrainer):
                 # }
                 #train_log.update(scalar_dict)
                 wandb.log(train_log)
-                wandb.log(self.agent.dynamics_model.get_dynamics_mae(rng=self.rng))
+                wandb.log({
+                    'env_steps': env_step_log['env_steps'],
+                    **self.agent.dynamics_model.get_dynamics_mae(rng=self.rng),
+                })
             # step += 1
         self.save_agent(step, agent_name="final_agent")
 

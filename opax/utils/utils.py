@@ -231,7 +231,8 @@ def get_idx(tree: PyTree, idx: int):
 
 
 def convert_to_jax(x):
-    if not isinstance(x, jax.Array):
-        return jnp.asarray(x)
-    else:
-        return x
+    return jnp.asarray(x)
+    #if not isinstance(x, jax.Array):
+    #    return jnp.asarray(x)
+    #else:
+    #    return x
