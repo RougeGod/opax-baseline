@@ -100,7 +100,7 @@ class DynamicsModel(object):
 
     @staticmethod
     @jax.jit
-    def update_model(model_params: PyTree, model_opt_state: PyTree, alpha: Union[float, chex.Array],
+    def update_model(alpha: Union[float, chex.Array],
                      model_props: ModelProperties) -> ModelProperties:
         # update model params and properties
         alpha = convert_to_jax(alpha)

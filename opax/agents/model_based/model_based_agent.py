@@ -50,7 +50,7 @@ class ModelBasedAgent(DummyAgent):
             optimizer_kwargs: Optional[Dict[str, Any]] = None,
             reset_optimizer_params_for: int = 5,
             log_full_training: bool = False,
-            log_agent_training: bool = False,
+            log_agent_training: bool = True,
             *args,
             **kwargs,
     ):
@@ -188,6 +188,15 @@ class ModelBasedAgent(DummyAgent):
             )
         self.update_models(model_params=model_params, model_opt_state=model_opt_state, alpha=alpha)
         return total_train_steps
+        
+    @jax.jit(static_argnames=["self"])
+    def train_step_scan(self, rng: jax.Array, alpha, model_params, model_opt_state, transitions, val_transitions):
+        carry = [rng, alpha, model_params, model_opt_state]
+        ins = transitions, val_transitions
+    #pull this out to avoid recompilation of every gradient step
+        carry, outs = jax.lax.scan(self.step, carry, ins, length=self.train_steps)
+        return carry, outs
+        
 
     def train_step(self,
                    rng: jax.Array,
@@ -213,7 +222,7 @@ class ModelBasedAgent(DummyAgent):
             total_train_steps = math.ceil(self.buffer_state.size * self.num_epochs / self.batch_size)
         else:
             total_train_steps = self.train_steps
-        self.update_steps += 1
+        self.update_steps += 1 #update, needs to be fixed to be compilable
         total_train_steps = min(total_train_steps, self.max_train_steps)
         train_loops = math.ceil(total_train_steps / max_train_steps_per_iter)
         train_steps = min(max_train_steps_per_iter, total_train_steps)
@@ -245,7 +254,7 @@ class ModelBasedAgent(DummyAgent):
                 model_opt_state,
             ]
             ins = [transitions, val_transitions]
-            carry, outs = jax.lax.scan(self.step, carry, ins, length=train_steps)
+            carry, outs = self.train_step_scan(train_rng, alpha, model_params, model_opt_state, transitions, val_transitions)
             model_params = carry[2]
             model_opt_state = carry[3]
             alpha = carry[1]

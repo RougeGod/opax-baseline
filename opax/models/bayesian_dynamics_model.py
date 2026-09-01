@@ -418,7 +418,7 @@ class BayesianDynamicsModel(DynamicsModel):
         return self.model.init_opt_state
 
     def update_model(self, model_params: PyTree, model_opt_state: PyTree, alpha: Union[chex.Array, float], model_props):
-        self.model_props = super().update_model(model_params, model_opt_state, alpha, model_props)
+        self.model_props = super().update_model(alpha, model_props)
         self.model.particles = model_params
         self.model.opt_state = model_opt_state
 
@@ -499,7 +499,8 @@ class BayesianDynamicsModel(DynamicsModel):
         mean_delta_next_obs = mean_next_obs - val_obs
         #get mean of dynamics error over dimensions and return it as a dictionary for wandb
         dynamics_mae = jnp.mean(jnp.abs(true_delta_obs - mean_delta_next_obs))
-        return {"dynamics_mae": dynamics_mae}
+        prediction_uncertainty = jnp.mean(std_next_obs)
+        return {"dynamics_mae": dynamics_mae, "predicted_uncertainty": prediction_uncertainty}
         
 
         

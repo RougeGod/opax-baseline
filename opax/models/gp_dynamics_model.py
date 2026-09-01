@@ -397,7 +397,7 @@ class GPDynamicsModel(DynamicsModel):
         return trained_params, jnp.empty(1), jnp.ones(self.obs_dim), summary
 
     def update_model(self, model_params: PyTree, model_opt_state: PyTree, alpha: chex.Array):
-        super().update_model(model_params, model_opt_state, alpha)
+        super().update_model(alpha, self.model_props)
         self.model.parameter_state = GPModelParameters(
             gp_parameter_state=model_params.gp_parameter_state,
             dataset=self.model.parameter_state.dataset
