@@ -48,43 +48,61 @@ where = ["."]
 include = ["*"]
 
 [tool.cluv]
-results_path = "logs"
+results_path = "opax_results"
+job_script_path = "scripts/safe_job.sh"
 
 [tool.cluv.env]
 # Environment variables applied when using Slurm commands on all clusters.
-SBATCH_TIME = "3:00:00"
-SBATCH_REQUEUE = "1"
+SBATCH_TIME = "11:59:00"
+#SBATCH_REQUEUE = "0"
+SBATCH_ACCOUNT = "def-amw8"
 
-[tool.cluv.clusters.mila]
-env = {UV_OFFLINE="0", WANDB_MODE="online"}
+[tool.cluv.sbatch_args]
+mem = "16G"
+time = "11:59:59"
+gpus = "1"
+cpus-per-task = "4"
 
 # PAICE clusters.
 [tool.cluv.clusters.tamia]
-env = {UV_OFFLINE="1", WANDB_MODE="offline"}
+env = {UV_OFFLINE="1", WANDB_MODE="offline", SBATCH_ACCOUNT="aip-amw8"}
 
 [tool.cluv.clusters.killarney]
-env = {UV_OFFLINE="1", WANDB_MODE="offline"}
+env = {UV_OFFLINE="1", WANDB_MODE="offline", SBATCH_ACCOUNT="aip-amw8"}
 
 [tool.cluv.clusters.vulcan]
-env = {UV_OFFLINE="1", WANDB_MODE="offline"}
+env = {UV_OFFLINE="1", WANDB_MODE="offline", SBATCH_ACCOUNT="aip-amw8"}
+
 
 # DRAC clusters.
 [tool.cluv.clusters.rorqual]
-env = {UV_OFFLINE="1", WANDB_MODE="offline", SBATCH_ACCOUNT="rrg-bengioy-ad"}
+env = {UV_OFFLINE="1", WANDB_MODE="offline", SBATCH_ACCOUNT="def-amw8"}
 
 [tool.cluv.clusters.fir]
-env = {UV_OFFLINE="0", WANDB_MODE="online", SBATCH_ACCOUNT="rrg-bengioy-ad"}
+env = {UV_OFFLINE="0", WANDB_MODE="offline", SBATCH_ACCOUNT="def-amw8"}
 
 [tool.cluv.clusters.nibi]
-env = {UV_OFFLINE="0", WANDB_MODE="online", SBATCH_ACCOUNT="rrg-bengioy-ad"}
+env = {UV_OFFLINE="0", WANDB_MODE="offline", SBATCH_ACCOUNT="def-amw8"}
 
 [tool.cluv.clusters.trillium]
-env = {UV_OFFLINE="1", WANDB_MODE="offline", SBATCH_ACCOUNT="rrg-bengioy-ad"}
+env = {UV_OFFLINE="1", WANDB_MODE="offline", SBATCH_ACCOUNT="def-amw8"}
 
 [tool.cluv.clusters.trillium-gpu]
-env = {UV_OFFLINE="1", WANDB_MODE="offline", SBATCH_ACCOUNT="rrg-bengioy-ad"}
+env = {UV_OFFLINE="1", WANDB_MODE="offline", SBATCH_ACCOUNT="def-amw8"}
 
 [tool.cluv.clusters.narval]
-# Mila doesn't have an allocation on Narval anymore.
-# You can also use "def-yourusername" (the default partitions).
-env = {UV_OFFLINE="1", WANDB_MODE="offline", SBATCH_ACCOUNT="def-bengioy"}
+env = {UV_OFFLINE="1", WANDB_MODE="offline", SBATCH_ACCOUNT="def-amw8"}
+
+#request MIG on clusters that allow it
+[tool.cluv.clusters.narval.sbatch_args]
+gpus = "a100_3g.20gb:1"
+
+[tool.cluv.clusters.rorqual.sbatch_args]
+gpus = "h100_2g.20gb:1"
+
+[tool.cluv.clusters.nibi.sbatch_args]
+gpus = "h100_2g.20gb:1"
+
+[tool.cluv.clusters.fir.sbatch_args]
+gpus = "nvidia_h100_80gb_hbm3_2g.20gb:1"
+
