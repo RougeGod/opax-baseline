@@ -87,12 +87,6 @@ env = {UV_OFFLINE="1", WANDB_MODE="offline", SBATCH_ACCOUNT="def-amw8"}
 [tool.cluv.clusters.narval]
 env = {UV_OFFLINE="1", WANDB_MODE="offline", SBATCH_ACCOUNT="def-amw8"}
 
-[tool.cluv.clusters.vulcan.sbatch_args]
-mem = "16G"
-time = "11:59:59"
-gpus = "1"
-cpus_per_task = "4"
-
 #request MIG on clusters that allow it
 [tool.cluv.clusters.narval.sbatch_args]
 gpus = "a100_3g.20gb:1"
