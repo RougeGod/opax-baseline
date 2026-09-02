@@ -55,7 +55,7 @@ job_script_path = "scripts/safe_job.sh"
 mem = "16G"
 time = "11:59:59"
 gpus = "1"
-cpus_per_task = "4"
+cpus-per-task = "4"
 
 # PAICE clusters.
 [tool.cluv.clusters.tamia]
