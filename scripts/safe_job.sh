@@ -1,9 +1,5 @@
 #!/bin/bash
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=1
-#SBATCH --mem-per-cpu=4G
-#SBATCH --time=0:05:00
-#SBATCH --output=logs/%j/slurm-%j.out
 
 project_name="opax"
 project_root="$HOME/Desktop/Dossier/opax"
