@@ -5,6 +5,10 @@ project_name="opax"
 project_root="$HOME/Desktop/Dossier/opax"
 results_path="logs"
 
+# Compute nodes have no internet access, so uv can only install from its cache.
+# Keep it in $SCRATCH (not $HOME, which has a much smaller quota on most clusters).
+export UV_CACHE_DIR="${SCRATCH:-$HOME}/uv-cache"
+mkdir -p "$UV_CACHE_DIR"
 
 echo "GIT_COMMIT=${GIT_COMMIT:?GIT_COMMIT is not set. Use 'cluv submit' to submit this job script.}"
 # Setup the repo in $SLURM_TMPDIR, so the code can change in the project without affecting the job.
