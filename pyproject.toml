@@ -53,9 +53,9 @@ job_script_path = "scripts/job.sh"
 
 [tool.cluv.sbatch_args]
 mem = "16G"
-time = "11:59:59"
-gpus = "1"
-cpus-per-task = "4"
+time = "2:59:59"
+#gpus = "1"
+cpus-per-task = "32"
 
 # PAICE clusters.
 [tool.cluv.clusters.tamia]
