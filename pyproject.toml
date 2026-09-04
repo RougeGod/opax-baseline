@@ -49,7 +49,7 @@ include = ["*"]
 
 [tool.cluv]
 results_path = "opax_results"
-job_script_path = "scripts/safe_job.sh"
+job_script_path = "scripts/job.sh"
 
 [tool.cluv.sbatch_args]
 mem = "16G"
