@@ -4,7 +4,6 @@ import yaml
 from opax.trainer.model_based.model_based_trainer import ModelBasedTrainer as Trainer
 from opax.agents.model_based.model_based_agent import ModelBasedAgent
 from dataclasses import dataclass, field
-import wandb
 from gym.wrappers.time_limit import TimeLimit
 from gym.wrappers.rescale_action import RescaleAction
 from opax.models.environment_models.pendulum_swing_up import PendulumSwingUpEnv, PendulumDynamicsModel
@@ -89,8 +88,4 @@ if __name__ == "__main__":
         record_test_video=False,
         validation_buffer_size=10000,
     )
-    if USE_WANDB:
-        wandb.init(
-            project=kwargs['project_name'],
-        )
     trainer.train()

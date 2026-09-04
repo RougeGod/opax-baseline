@@ -9,7 +9,6 @@ from opax.utils.replay_buffer import JaxReplayBuffer as ReplayBuffer
 from opax.utils.utils import get_idx
 from opax.agents.dummy_agent import DummyAgent
 import jax.numpy as jnp
-import wandb
 from typing import Union, Optional, Dict, Any
 from opax.models.hucrl_model import HUCRLModel
 from opax.models.gp_dynamics_model import GPDynamicsModel
@@ -204,6 +203,7 @@ class ModelBasedAgent(DummyAgent):
                    buffer_state: BufferState,
                    validate: bool = True,
                    log_results: bool = True,
+                   logger=None,
                    ) -> int:
         """
         Training of model based agent
@@ -212,6 +212,7 @@ class ModelBasedAgent(DummyAgent):
         :param buffer_state: BufferState, current state (data) of the buffer to sample from
         :param validate: bool, boolean for validating model
         :param log_results: bool, boolean to indicate logging of training results.
+        :param logger: CSVLogger, logger to record training results to, required if log_results is True
         :return
         """
         self.buffer_state = buffer_state
@@ -259,13 +260,13 @@ class ModelBasedAgent(DummyAgent):
             model_opt_state = carry[3]
             alpha = carry[1]
             summary = outs[0]
-            if log_results:
+            if log_results and logger is not None:
                 if self.log_full_training:
                     for i in range(total_train_steps):
-                        wandb.log(get_idx(summary, i).dict())
+                        logger.log(get_idx(summary, i).dict())
                 else:
                     for i in range(0, total_train_steps, 10):
-                        wandb.log(get_idx(summary, i).dict())
+                        logger.log(get_idx(summary, i).dict())
         if self.calibrate_model:
             alpha = carry[1]
         self.update_models(model_params=model_params, model_opt_state=model_opt_state, alpha=alpha)

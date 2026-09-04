@@ -1,5 +1,4 @@
 from jax import random
-import wandb
 from tqdm import tqdm
 from opax.trainer.dummy_trainer import DummyTrainer
 from opax.agents.actor_critic.sac import SACAgent
@@ -17,8 +16,6 @@ class OffPolicyTrainer(DummyTrainer):
         assert isinstance(self.agent, SACAgent), "Only Off policy agents are allowed"
 
     def train(self):
-        if self.use_wandb:
-            wandb.define_metric('env_steps')
         self.rng, eval_rng = random.split(self.rng, 2)
         eval_rng, curr_eval = random.split(eval_rng, 2)
         reward_log = self.eval_policy(rng=curr_eval)
@@ -29,9 +26,7 @@ class OffPolicyTrainer(DummyTrainer):
         train_steps = 0
         self.save_agent(0)
         if self.use_wandb:
-            wandb.define_metric("env_steps")
-            wandb.define_metric("train_steps")
-            wandb.log(reward_log)
+            self.logger.log(reward_log)
         policy = lambda x, y: np.concatenate([self.env.action_space.sample().reshape(1, -1)
                                               for s in range(self.num_envs)], axis=0)
         transitions = self.rollout_policy(self.exploration_steps, policy, self.rng)
@@ -62,9 +57,9 @@ class OffPolicyTrainer(DummyTrainer):
             #    obs, _ = self.env.reset(seed=reset_seed)
             # transitions = self.rollout_policy(self.rollout_steps, policy, actor_rng)
             if self.use_wandb:
-                wandb.log({'learning_steps':  step,
-                           'env_steps': step * self.rollout_steps * self.num_envs,
-                           })
+                self.logger.log({'learning_steps':  step,
+                                  'env_steps': step * self.rollout_steps * self.num_envs,
+                                  })
             if step % self.train_freq == 0:
                 train_rng, agent_rng = random.split(train_rng, 2)
                 total_train_steps = self.agent.train_step(
@@ -79,7 +74,7 @@ class OffPolicyTrainer(DummyTrainer):
                 eval_rng, curr_eval = random.split(eval_rng, 2)
                 reward_log = self.eval_policy(rng=curr_eval, step=train_steps)
                 if self.use_wandb:
-                    wandb.log(reward_log)
+                    self.logger.log(reward_log)
                 if reward_log['reward_task_0'] > best_performance:
                     best_performance = reward_log['reward_task_0']
                     self.save_agent(step)

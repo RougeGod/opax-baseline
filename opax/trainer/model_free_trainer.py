@@ -1,5 +1,4 @@
 from jax import random
-import wandb
 from tqdm import tqdm
 from opax.trainer.dummy_trainer import DummyTrainer
 
@@ -14,9 +13,6 @@ class ModelFreeTrainer(DummyTrainer):
         super(ModelFreeTrainer, self).__init__(agent_name=agent_name, *args, **kwargs)
 
     def train(self):
-        if self.use_wandb:
-            wandb.define_metric('env_steps')
-            wandb.define_metric('train_steps')
         self.rng, eval_rng = random.split(self.rng, 2)
         eval_rng, curr_eval = random.split(eval_rng, 2)
         reward_log = self.eval_policy(rng=curr_eval)
@@ -27,9 +23,7 @@ class ModelFreeTrainer(DummyTrainer):
         train_steps = 0
         self.save_agent(0)
         if self.use_wandb:
-            wandb.define_metric("env_steps")
-            wandb.define_metric("train_steps")
-            wandb.log(reward_log)
+            self.logger.log(reward_log)
         policy = lambda x, y: self.env.action_space.sample()
         transitions = self.rollout_policy(self.exploration_steps, policy, self.rng)
         self.buffer.add(transition=transitions)
@@ -58,7 +52,7 @@ class ModelFreeTrainer(DummyTrainer):
                 eval_rng, curr_eval = random.split(eval_rng, 2)
                 reward_log = self.eval_policy(rng=curr_eval, step=train_steps)
                 if self.use_wandb:
-                    wandb.log(reward_log)
+                    self.logger.log(reward_log)
                 if reward_log['reward_task_0'] > best_performance:
                     best_performance = reward_log['reward_task_0']
                     self.save_agent(step)

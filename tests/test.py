@@ -7,7 +7,6 @@ import yaml
 from opax.trainer.off_policy.off_policy_trainer import OffPolicyTrainer as Trainer
 from opax.agents.actor_critic.sac import SACAgent
 from dataclasses import dataclass, field
-import wandb
 from gym.wrappers.time_limit import TimeLimit
 from gym.wrappers.rescale_action import RescaleAction
 from opax.utils.vec_env.env_util import make_vec_env
@@ -70,10 +69,6 @@ if __name__ == "__main__":
         train_freq=kwargs['trainer']['train_freq'],
         rollout_steps=kwargs['trainer']['rollout_steps'],
     )
-    if USE_WANDB:
-        wandb.init(
-            project=kwargs['project_name'],
-        )
     #import jax
     #with jax.disable_jit():
     trainer.train()

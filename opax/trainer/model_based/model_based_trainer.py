@@ -3,7 +3,6 @@ from opax.utils.replay_buffer import JaxReplayBuffer as ReplayBuffer
 from opax.utils.replay_buffer import Transition, BufferState
 from opax.trainer.dummy_trainer import DummyTrainer
 from opax.agents.model_based.model_based_agent import ModelBasedAgent
-import wandb
 from jax import random
 import jax.numpy as jnp
 import numpy as np
@@ -145,9 +144,6 @@ class ModelBasedTrainer(DummyTrainer):
         """
         Train function for model based agent
         """
-        if self.use_wandb:
-            wandb.define_metric('env_steps')
-            wandb.define_metric('learning_step')
         self.rng, eval_rng = random.split(self.rng, 2)
         eval_rng, curr_eval = random.split(eval_rng, 2)
 
@@ -170,15 +166,8 @@ class ModelBasedTrainer(DummyTrainer):
         train_steps = 0
         self.save_agent(0)
         if self.use_wandb:
-            wandb.define_metric("env_steps")
-            wandb.define_metric("train_steps")
             reward_log.update(model_log)
-            wandb.log(reward_log)
-            #get the dynamics MAE before any learning
-            #wandb.log({
-            #    'env_steps': 0,
-            #    **self.agent.dynamics_model.get_dynamics_mae(rng=self.rng),
-            #})
+            self.logger.log(reward_log)
 
         # returns policy used for random exploration
         #may need to be changed based on the env but I think the actions are always clipped to [-1,1] for normalization?
@@ -243,6 +232,7 @@ class ModelBasedTrainer(DummyTrainer):
                     buffer_state=self.buffer_state,
                     validate=self.validate,
                     log_results=self.use_wandb,
+                    logger=self.logger,
                 )
                 train_steps += total_train_steps
                 train_step_log = {
@@ -274,8 +264,8 @@ class ModelBasedTrainer(DummyTrainer):
                 #     'scale_out': np.mean(self.buffer.next_state_normalizer.std).astype(float).item(),
                 # }
                 #train_log.update(scalar_dict)
-                wandb.log(train_log)
-                wandb.log({
+                self.logger.log(train_log)
+                self.logger.log({
                     'env_steps': env_step_log['env_steps'],
                     **self.agent.dynamics_model.get_dynamics_mae(rng=self.rng),
                 })

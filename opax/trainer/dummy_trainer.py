@@ -3,7 +3,7 @@ from opax.utils.replay_buffer import Transition, BufferState
 from opax.utils.replay_buffer import JaxReplayBuffer as ReplayBuffer
 from opax.agents.dummy_agent import DummyAgent
 from typing import Callable, Optional, Union
-import wandb
+from opax.utils.csv_logger import CSVLogger
 from copy import deepcopy
 import numpy as np
 import jax.numpy as jnp
@@ -11,7 +11,6 @@ from opax.utils.vec_env import VecEnv
 from tqdm import tqdm
 from gymnasium.wrappers import RecordVideo
 from gymnasium import Env
-import glob
 import orbax.checkpoint as ocp
 from datetime import datetime
 import os
@@ -32,7 +31,7 @@ class DummyTrainer(object):
     rollout_steps: int, Number of steps per rollout in the environment
     eval_episodes: int, Number of episodes used for evaluation
     agent_name: str, Name of the agent
-    use_wandb: bool, boolean to indicated logging in wandb
+    use_wandb: bool, boolean to indicate whether metrics should be logged to csv files
     validate: bool, boolean to indicate policy validation (generally only used for model based RL)
     normalize: bool, boolean to indicate if data is normalized or not
     agent_save_loc: str, location to save the agent checkpoint
@@ -100,6 +99,10 @@ class DummyTrainer(object):
         dt_string = now.strftime("%d_%m_%Y_%H_%M_%S")
         self.video_dir_name = video_folder + 'video' + str(seed) + video_prefix + dt_string
         self.record_test_video = record_test_video
+        self.logger = None
+        if self.use_wandb:
+            log_dir = video_folder + 'csv_logs' + str(seed) + video_prefix + dt_string
+            self.logger = CSVLogger(log_dir)
 
         if self.agent_load_loc is not None:
             self.load_agent(self.agent_load_loc)
@@ -412,15 +415,6 @@ class DummyTrainer(object):
             avg_reward /= self.eval_episodes
             reward_log['reward_task_' + str(i)] = avg_reward
             pbar.close()
-            if self.use_wandb and self.record_test_video:
-                mp4list = glob.glob(self.video_dirs[i] + '/*.mp4')
-                if len(mp4list) > 0:
-                    mp4 = mp4list[-1]
-                    # log gameplay video in wandb
-                    wandb.log({"gameplays":
-                                   wandb.Video(mp4, caption='episode/step: ' + str(step) + '/task:' + str(i),
-                                               fps=4, format="gif"),
-                               "step": step})
         return reward_log
 
     @property

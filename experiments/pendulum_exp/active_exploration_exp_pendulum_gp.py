@@ -11,7 +11,6 @@ import os
 import sys
 import argparse
 from experiments.util import Logger, hash_dict, NumpyArrayEncoder
-import wandb
 from typing import Optional
 
 
@@ -187,12 +186,6 @@ def experiment(logs_dir: str, use_wandb: bool, exp_name: str, time_limit: int, n
         group_name += "_log_rewards"
     if use_al:
         group_name += "_aleatoric_rewards"
-    if USE_WANDB:
-        wandb.init(
-            dir=logs_dir,
-            project=exp_name,
-            group=group_name,
-        )
     trainer.train()
 
     result_dict = {

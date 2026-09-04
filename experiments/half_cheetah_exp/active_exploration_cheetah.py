@@ -9,7 +9,6 @@ import os
 import sys
 import argparse
 from experiments.util import Logger, hash_dict, NumpyArrayEncoder
-import wandb
 from typing import Optional
 from opax.models.hucrl_model import HUCRLModel
 from opax.models.environment_models.halfcheetah_reward_model import HalfCheetahReward
@@ -272,12 +271,6 @@ def experiment(logs_dir: str, use_wandb: bool, time_limit: int, n_envs: int, exp
         group_name += "_log_rewards"
     if use_al:
         group_name += "_aleatoric_rewards"
-    if USE_WANDB:
-        wandb.init(
-            dir=logs_dir,
-            project=exp_name,
-            group=group_name,
-        )
     trainer.train()
 
     result_dict = {

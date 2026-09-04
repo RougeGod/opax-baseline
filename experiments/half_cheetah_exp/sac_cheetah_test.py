@@ -9,7 +9,6 @@ import os
 import sys
 import argparse
 from experiments.util import Logger, hash_dict, NumpyArrayEncoder
-import wandb
 from opax.models.environment_models.halfcheetah_reward_model import HalfCheetahReward
 from opax.envs.wrappers.action_repeat import ActionRepeat
 
@@ -85,12 +84,6 @@ def experiment(logs_dir: str, use_wandb: bool, time_limit: int, n_envs: int, exp
     )
 
     group_name = exploration_strategy
-    if USE_WANDB:
-        wandb.init(
-            dir=logs_dir,
-            project=exp_name,
-            group=group_name,
-        )
     trainer.train()
 
     result_dict = {
