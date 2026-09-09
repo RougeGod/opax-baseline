@@ -26,8 +26,6 @@ class CSVLogger:
             is_new = not os.path.exists(path)
             f = open(path, "a", newline="")
             writer = csv.writer(f)
-            if is_new:
-                writer.writerow(["x", "y"])
             self._files[metric] = f
             self._writers[metric] = writer
             self._counters[metric] = 0
