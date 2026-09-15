@@ -1,6 +1,6 @@
 import jax.random
 from opax.utils.replay_buffer import JaxReplayBuffer as ReplayBuffer
-from opax.utils.replay_buffer import Transition, BufferState
+from opax.utils.replay_buffer import Transition, BufferState, mask_out_resets
 from opax.trainer.dummy_trainer import DummyTrainer
 from opax.agents.model_based.model_based_agent import ModelBasedAgent
 from jax import random
@@ -206,6 +206,7 @@ class ModelBasedTrainer(DummyTrainer):
             policy = self.agent.act_in_train if not self.uniform_exploration else exploration_policy
             actor_rng, val_rng = random.split(actor_rng, 2)
             transitions, obs, done = self.step_env(obs, policy, self.rollout_steps, actor_rng)
+            transitions = mask_out_resets(transitions)
             self.buffer_state = self.buffer.add(transitions, self.buffer_state)
             self.agent.set_transforms(
                 bias_obs=self.buffer_state.state_normalizer_state.mean,
@@ -215,7 +216,7 @@ class ModelBasedTrainer(DummyTrainer):
                 scale_act=self.buffer_state.action_normalizer_state.std,
                 scale_out=self.buffer_state.next_state_normalizer_state.std,
             )
-            self.agent.update_posterior(self.buffer)
+            self.agent.update_posterior(self.buffer) #does nothing unless GP
             reward_log = {}
             train_step_log = {}
             model_log = {}
