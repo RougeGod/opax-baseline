@@ -77,6 +77,17 @@ def merge_transitions(tran_a: Transition, tran_b: Transition, axis=0):
         done,
     )
 
+def mask_out_resets(transitions):
+    number_done = jnp.sum(transitions.done) #count the number of transitions with Done=True
+    #this should mean that the first len(tran) - done`transitions are before the resets
+    number_before_reset = jnp.shape(transitions)[0] - number_done
+    return transition_to_jax(Transition(transitions.obs[:number_before_reset],
+                             transitions.action[:number_before_reset],
+                             transitions.next_obs[:number_before_reset],
+                             transitions.reward[:number_before_reset], 
+                             transitions.done[:number_before_reset]))
+    
+
 
 def transition_to_jax(tran: Transition):
     return Transition(
