@@ -49,12 +49,14 @@ include = ["*"]
 [tool.cluv]
 results_path = "opax_results"
 job_script_path = "scripts/job.sh"
+env = {}
 
 [tool.cluv.sbatch_args]
 mem = "16G"
 time = "2:59:59"
 gpus = "1"
 cpus-per-task= "4"
+
 
 # PAICE clusters.
 [tool.cluv.clusters.tamia]
@@ -86,10 +88,11 @@ env = {UV_OFFLINE="1", WANDB_MODE="offline", SBATCH_ACCOUNT="def-amw8"}
 [tool.cluv.clusters.narval]
 env = {UV_OFFLINE="1", WANDB_MODE="offline", SBATCH_ACCOUNT="def-amw8"}
 
-#request MIG on clusters that allow it
 [tool.cluv.clusters.narval.sbatch_args]
-gpus = "a100_3g.20gb:1"
+gpus = "0"
 
+
+#request MIG on rorqual/nibi/fir
 [tool.cluv.clusters.rorqual.sbatch_args]
 gpus = "h100_2g.20gb:1"
 
@@ -99,3 +102,5 @@ gpus = "h100_2g.20gb:1"
 [tool.cluv.clusters.fir.sbatch_args]
 gpus = "nvidia_h100_80gb_hbm3_2g.20gb:1"
 
+[tool.cluv.clusters.tamia.sbatch_args]
+gpus = "4"
