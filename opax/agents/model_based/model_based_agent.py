@@ -3,6 +3,7 @@ import math
 
 from opax.models.dynamics_model import DynamicsModel
 from opax.optimizers.icem_trajectory_optimizer import ICemTO
+from opax.optimizers.sac_based_optimizer import SACOptimizer
 import gymnasium as gym
 from opax.utils.replay_buffer import Transition, BufferState
 from opax.utils.replay_buffer import JaxReplayBuffer as ReplayBuffer
@@ -70,11 +71,20 @@ class ModelBasedAgent(DummyAgent):
         action_dim = self.action_space.shape
         if isinstance(self.dynamics_model, HUCRLModel) or isinstance(self.dynamics_model, GPDynamicsModel):
             action_dim = (self.action_space.shape[0] + self.observation_space.shape[0], )
-        assert policy_optimizer_name == 'iCemTO'
-        self.policy_optimizer = ICemTO(
+        if policy_optimizer_name == 'iCemTO':
+            self.policy_optimizer = ICemTO(
+                    dynamics_model_list=self.dynamics_model_list,
+                    horizon=horizon,
+                    n_particles=n_particles,
+                    action_dim=action_dim,
+                    **optimizer_kwargs,
+                )
+            self.best_sequences = self.policy_optimizer.best_sequences
+            
+        elif policy_optimizer_name == "SacOpt":
+            self.policy_optimizer = SACOptimizer(
                 dynamics_model_list=self.dynamics_model_list,
                 horizon=horizon,
-                n_particles=n_particles,
                 action_dim=action_dim,
                 **optimizer_kwargs,
             )
@@ -88,7 +98,6 @@ class ModelBasedAgent(DummyAgent):
         # Agent-owned copy of the iCEM warm-start state. Owned here (not by
         # self.policy_optimizer) so act_in_jax can thread it through as an
         # explicit input/output instead of mutating it in place mid-trace.
-        self.best_sequences = self.policy_optimizer.best_sequences
         self.log_agent_training = log_agent_training
         self.log_full_training = log_full_training
         if init_function:
