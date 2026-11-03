@@ -269,7 +269,7 @@ class ModelBasedTrainer(DummyTrainer):
                 self.logger.log(train_log)
                 self.logger.log({
                     'env_steps': env_step_log['env_steps'],
-                    **self.agent.dynamics_model.get_dynamics_mae(rng=self.rng),
+                    **self.agent.dynamics_model.get_dynamics_mae(rng=self.rng, env_name=self.env.env_name),
                 })
             # step += 1
         self.save_agent(step, agent_name="final_agent")

@@ -26,6 +26,7 @@ class GymnaxPendulumVecEnv:
     unaffected; actions are rescaled to the raw torque range internally before
     being handed to gymnax.
     """
+    env_name = "Pendulum-v1"
 
     def __init__(self, n_envs: int, seed: int, time_limit: int = 200):
         self.num_envs = n_envs

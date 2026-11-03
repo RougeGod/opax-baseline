@@ -2,9 +2,11 @@ import jax
 import jax.numpy as jnp
 import gymnax
 from gymnax.environments import spaces
+from opax.models.environment_models.mountain_car import MountainCarDynamics
 
 
 _DUMMY_KEY = jax.random.key(0)
+_MOUNTAIN_CAR_DYNAMICS = MountainCarDynamics()
 
 def make_state(env_name: str, s1, s2):
     if env_name == "Pendulum-v1":
@@ -44,6 +46,15 @@ def make_state(env_name: str, s1, s2):
 
 def true_transition(env, params, env_name, s1, s2, action):
     """Ground-truth (delta_obs, reward, terminated) for a single transition."""
+    if env_name == "MountainCarContinuous-v0":
+        # The training env (CustomMountainCar / CompiledMountainCarVecEnv) steps
+        # MountainCarDynamics, not gymnax's physics, which terminate at the goal
+        # and zero the velocity there instead of at the left wall. Use the same
+        # function so the ground truth matches the env the data comes from.
+        obs = obs_from_generic_coords(s1, s2, env_name)
+        next_obs, reward = _MOUNTAIN_CAR_DYNAMICS.evaluate(obs=obs, action=jnp.atleast_1d(action))
+        # CustomMountainCar never terminates, the episode only ends at the time limit
+        return next_obs - obs, reward, jnp.zeros((), dtype=jnp.float32)
     state = make_state(env_name, s1, s2)
     obs = env.get_obs(state)
     if isinstance(env.action_space(params), spaces.Discrete):
@@ -103,6 +114,9 @@ def obs_from_generic_coords(s1, s2, env_name):
         case "Pendulum-v1":
             #s1 is theta but the observation is x, y, dtheta/dt
             return jnp.stack([jnp.cos(s1), jnp.sin(s1), s2], axis=-1)
+        case "MountainCarContinuous-v0":
+            #s1 is position, s2 is velocity, observed directly
+            return jnp.stack([s1, s2], axis=-1)
         case _:
             raise NotImplementedError(f"todo: support other environments like {env_name}")
             
@@ -127,6 +141,28 @@ def sample_validation_batch(rng, env, env_params, env_name: str, num_samples: in
             (num_samples, 1),
             minval=-env_params.max_torque,
             maxval=env_params.max_torque,
+        )
+    elif env_name == "MountainCarContinuous-v0":
+        rng, key_s1, key_s2, key_act = jax.random.split(rng, 4)
+        #s1 for position, s2 for velocity, uniform over the observation space
+        #like CustomMountainCar.sample_obs
+        s1 = jax.random.uniform(
+            key_s1,
+            (num_samples,),
+            minval=env_params.min_position,
+            maxval=env_params.max_position,
+        )
+        s2 = jax.random.uniform(
+            key_s2,
+            (num_samples,),
+            minval=-env_params.max_speed,
+            maxval=env_params.max_speed,
+        )
+        actions = jax.random.uniform(
+            key_act,
+            (num_samples, 1),
+            minval=env_params.min_action,
+            maxval=env_params.max_action,
         )
     else: raise NotImplementedError
     obs = obs_from_generic_coords(s1, s2, env_name)

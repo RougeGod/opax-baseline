@@ -1,5 +1,6 @@
 from gymnasium.wrappers import RescaleAction, TimeLimit
 from opax.utils.vec_env.env_util import make_vec_env
+from opax.utils.vec_env.compiled_mountain_car_vec_env import CompiledMountainCarVecEnv
 from opax.models.environment_models.mountain_car import MountainCarRewardModel, MountainCarDynamics
 from opax.envs.custom_mountain_car_env import CustomMountainCar
 from opax.models.active_learning_model import ActiveLearningHUCRLModel, ActiveLearningPETSModel
@@ -61,23 +62,11 @@ def experiment(logs_dir: str, use_wandb: bool, exp_name: str, time_limit: int, n
 
     lr = 5e-4
 
-    # config.update("jax_log_compiles", 1)
-    wrapper_cls = lambda x: RescaleAction(
-        TimeLimit(x, max_episode_steps=time_limit),
-        min_action=-1,
-        max_action=1,
-    )
-    wrapper_cls_test = wrapper_cls
-    if time_limit_eval is not None:
-        wrapper_cls_test = lambda x: RescaleAction(
-            TimeLimit(x, max_episode_steps=time_limit_eval),
-            min_action=-1,
-            max_action=1,
-        )
-    env = make_vec_env(env_id=CustomMountainCar, wrapper_class=wrapper_cls, n_envs=n_envs, seed=seed)
-                       # vec_env_cls=SubprocVecEnv)
-    test_env = make_vec_env(env_id=CustomMountainCar, wrapper_class=wrapper_cls_test, n_envs=1, seed=seed)
-    test_env = test_env.envs[0]
+    env = CompiledMountainCarVecEnv(n_envs=n_envs, seed=seed, time_limit=time_limit)
+    
+    #1 test env at a time for eval_policy to work correctly
+    test_env = CompiledMountainCarVecEnv(n_envs=1, seed=seed, time_limit=time_limit)
+
     features = [num_neurons] * hidden_layers
     reward_model = MountainCarRewardModel(action_space=env.action_space)
     video_prefix = ""
