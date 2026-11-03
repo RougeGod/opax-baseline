@@ -360,7 +360,8 @@ class JaxReplayBuffer(object):
             action=transition.action,
             next_obs=transition.next_obs,
             reward=transition.reward.reshape(-1, 1),
-            done=transition.done.reshape(-1, 1),
+            # match the stored dtype (bool): imagined rollouts (sample_trajectories) build done as float zeros
+            done=transition.done.reshape(-1, 1).astype(state.tran.done.dtype),
         )
         size = transition.shape[0]
         start = state.current_ptr

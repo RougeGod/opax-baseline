@@ -79,8 +79,6 @@ class ModelBasedAgent(DummyAgent):
                     action_dim=action_dim,
                     **optimizer_kwargs,
                 )
-            self.best_sequences = self.policy_optimizer.best_sequences
-            
         elif policy_optimizer_name == "SacOpt":
             self.policy_optimizer = SACOptimizer(
                 dynamics_model_list=self.dynamics_model_list,
@@ -88,6 +86,8 @@ class ModelBasedAgent(DummyAgent):
                 action_dim=action_dim,
                 **optimizer_kwargs,
             )
+        else:
+            raise NotImplementedError(f"{policy_optimizer_name} is no longer available, use iCemTO or SacOpt")
         self.n_particles = n_particles
         self.reset_model = reset_model
         self.reset_model_opt_state = reset_model_opt_state
@@ -95,9 +95,12 @@ class ModelBasedAgent(DummyAgent):
         self.reset_optimizer_params_for = reset_optimizer_params_for
         self.update_steps = 0
         self.buffer_state: Optional[BufferState] = None
-        # Agent-owned copy of the iCEM warm-start state. Owned here (not by
-        # self.policy_optimizer) so act_in_jax can thread it through as an
-        # explicit input/output instead of mutating it in place mid-trace.
+        # Agent-owned copy of the policy optimizer's per-rollout state (iCEM: the
+        # BestSequences warm start, SAC: the SacOptimizerState holding the trained
+        # policies). Owned here (not by self.policy_optimizer) so act_in_jax can
+        # thread it through as an explicit input/output instead of reading or
+        # mutating optimizer attributes, which jit would freeze at first trace.
+        self.policy_state = self.initial_policy_state()
         self.log_agent_training = log_agent_training
         self.log_full_training = log_full_training
         if init_function:
@@ -138,12 +141,27 @@ class ModelBasedAgent(DummyAgent):
         self.step = jax.jit(step)
         
     @jax.jit(static_argnames=["self", "eval", "eval_idx"])
-    def act_in_jax(self, obs: jax.Array, rng: jax.Array, best_sequences, eval: bool = False, eval_idx: int = 0):
-        """Optimize for an action sequence via MPC and take its first action.
+    def act_in_jax(self, obs: jax.Array, rng: jax.Array, policy_state, model_params, model_props,
+                   eval: bool = False, eval_idx: int = 0):
+        """Get an action from the policy optimizer.
 
-        needs to take the model's current best_sequences to avoid tracer leaks and 
-        the new optimizer state (best_sequences) gets written explicitly to the return
+        policy_state, model_params and model_props are explicit inputs because self is
+        static here: anything read off self is frozen into the compiled function at the
+        first trace, so updated model parameters or optimizer state would never be seen.
+        The new policy_state is returned explicitly for the caller to carry forward.
         """
+        # forward pass through policy if policy optimizer is SAC, its state is not changed by acting
+        if isinstance(self.policy_optimizer, SACOptimizer):
+            if eval:
+                action = self.policy_optimizer.get_action_for_eval(obs=obs, rng=rng, agent_idx=eval_idx,
+                                                                   policy_state=policy_state)
+            else:
+                action = self.policy_optimizer.get_action_for_exploration(obs=obs, rng=rng,
+                                                                          policy_state=policy_state)
+            action = action[..., :self.action_space.shape[0]]
+            return action, policy_state
+
+        # otherwise optimize for an action sequence via MPC and take its first action
         if eval:
             obs = obs.reshape(-1, obs.shape[-1])
             optimize_fn = self.policy_optimizer.optimize_for_eval_fns[eval_idx]
@@ -155,19 +173,19 @@ class ModelBasedAgent(DummyAgent):
         rollout_rng = jax.random.split(rollout_rng, n_envs)
         optimizer_rng = jax.random.split(optimizer_rng, n_envs)
 
-        action_sequence, best_reward, new_best_sequences = optimize_fn(
-            dynamics_params=self.dynamics_model.model_params,
+        action_sequence, best_reward, new_policy_state = optimize_fn(
+            dynamics_params=model_params,
             obs=obs,
-            best_sequences=best_sequences,
+            best_sequences=policy_state,
             key=rollout_rng,
             optimizer_key=optimizer_rng,
-            model_props=self.dynamics_model.model_props,
+            model_props=model_props,
         )
         action = action_sequence[:, 0, ...]
         if eval and action.shape[0] == 1:
             action = action.squeeze(0)
         action = action[..., :self.action_space.shape[0]]
-        return action, new_best_sequences
+        return action, new_policy_state
 
 
     def train_step_gp(self, rng: jax.Array, buffer: ReplayBuffer, validate: bool=True,
@@ -279,7 +297,36 @@ class ModelBasedAgent(DummyAgent):
         if self.calibrate_model:
             alpha = carry[1]
         self.update_models(model_params=model_params, model_opt_state=model_opt_state, alpha=alpha)
+        # train policy if SAC optimizer is used.
+        if isinstance(self.policy_optimizer, SACOptimizer):
+            if self.buffer_state.size > self.policy_optimizer.transitions_per_update:
+                train_rng = carry[0]
+                policy_train_rng, train_rng = jax.random.split(train_rng, 2)
+                policy_agent_train_summary, policy_train_rewards = self.policy_optimizer.train(
+                    rng=policy_train_rng,
+                    true_obs=self.buffer_state.tran.obs,
+                    obs_size=self.buffer_state.size,
+                    dynamics_params=model_params,
+                    model_props=self.dynamics_model.model_props,
+                    reset_agent=self.reset_agent_params,
+                )
+                if log_results and self.log_agent_training and logger is not None:
+                    for i in range(len(self.policy_optimizer.agent_list)):
+                        summary_dict = policy_agent_train_summary[i].dict()
+                        logger.log({key + '_agent_' + str(i): value for key, value in summary_dict.items()})
+                        for reward in policy_train_rewards[i]:
+                            logger.log({'sac_reward_agent_' + str(i): reward.item()})
         return total_train_steps
+
+    def get_model_inputs(self):
+        """Current (model_params, model_props) to pass into act_in_jax."""
+        return self.dynamics_model.model_params, self.dynamics_model.model_props
+
+    def initial_policy_state(self):
+        """Policy state at the start of a rollout: iCEM's all-zeros warm start, or SAC's trained policies."""
+        if isinstance(self.policy_optimizer, SACOptimizer):
+            return self.policy_optimizer.optimizer_state
+        return self.policy_optimizer.best_sequences
 
     def set_transforms(self,
                        bias_obs: Union[jnp.ndarray, float] = 0.0,
@@ -327,11 +374,11 @@ class ModelBasedAgent(DummyAgent):
         return self.update_steps < self.reset_optimizer_params_for
 
     def prepare_agent_for_rollout(self):
-        # DummyPolicyOptimizer.reset() is a no-op; the iCEM warm-start state
-        # now lives on the agent (self.best_sequences), so resetting it for
-        # a fresh rollout means restoring it to the optimizer's initial
-        # template rather than calling into the optimizer.
-        self.best_sequences = self.policy_optimizer.best_sequences
+        # DummyPolicyOptimizer.reset() is a no-op; the optimizer state now lives
+        # on the agent (self.policy_state), so resetting it for a fresh rollout
+        # means restoring iCEM's initial all-zeros template, or picking up SAC's
+        # latest trained policies, rather than calling into the optimizer.
+        self.policy_state = self.initial_policy_state()
 
     def update_posterior(self, buffer: ReplayBuffer):
         for i in range(len(self.dynamics_model_list)):

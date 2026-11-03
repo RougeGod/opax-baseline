@@ -182,9 +182,12 @@ class SACOptimizer(DummyPolicyOptimizer):
         self.use_best_trained_policy = use_best_trained_policy
         self._init_fn()
 
-    def get_action_for_eval(self, obs: jax.Array, rng, agent_idx: int):
+    def get_action_for_eval(self, obs: jax.Array, rng, agent_idx: int, policy_state=None):
+        # pass policy_state explicitly when called under jit, self.optimizer_state would be frozen at trace time
+        if policy_state is None:
+            policy_state = self.optimizer_state
         policy = self.agent_list[0].get_eval_action
-        agent_state = get_idx(self.optimizer_state, agent_idx)
+        agent_state = get_idx(policy_state, agent_idx)
         normalized_obs = (obs - agent_state.policy_props.policy_bias_obs) / (agent_state.policy_props.policy_scale_obs
                                                                              + EPS)
         action = policy(
@@ -197,12 +200,15 @@ class SACOptimizer(DummyPolicyOptimizer):
     def get_action(self, obs: jax.Array, rng):
         return self.get_action_for_eval(obs=obs, rng=rng, agent_idx=0)
 
-    def get_action_for_exploration(self, obs: jax.Array, rng: jax.Array, *args, **kwargs):
+    def get_action_for_exploration(self, obs: jax.Array, rng: jax.Array, policy_state=None, *args, **kwargs):
+        # pass policy_state explicitly when called under jit, self.optimizer_state would be frozen at trace time
+        if policy_state is None:
+            policy_state = self.optimizer_state
         policy = self.agent_list[0].get_action
         if self.active_exploration_agent:
-            agent_state = get_idx(self.optimizer_state, -1)
+            agent_state = get_idx(policy_state, -1)
         else:
-            agent_state = get_idx(self.optimizer_state, 0)
+            agent_state = get_idx(policy_state, 0)
         normalized_obs = (obs - agent_state.policy_props.policy_bias_obs) / (
                 agent_state.policy_props.policy_scale_obs + EPS)
         action = policy(
@@ -392,7 +398,8 @@ class SACOptimizer(DummyPolicyOptimizer):
 
     def train(self,
               rng: jax.Array,
-              buffer: ReplayBuffer,
+              true_obs: jax.Array,
+              obs_size: Union[jax.Array, int],
               dynamics_params: Optional = None,
               model_props: ModelProperties = ModelProperties(),
               sampling_idx: Optional[Union[jnp.ndarray, int]] = None,
@@ -468,8 +475,8 @@ class SACOptimizer(DummyPolicyOptimizer):
                 evaluate_fn = self.dynamics_model_list[j].evaluate_for_exploration
             simulation_buffer_state, optimizer_state, summary, reward = self.train_single_agent(
                 rng=rng,
-                true_obs=buffer.obs,
-                obs_size=buffer.size,
+                true_obs=true_obs,
+                obs_size=obs_size,
                 sim_buffer=sim_buffer,
                 simulation_buffer_state=sim_buffer_state,
                 train_steps=train_steps,

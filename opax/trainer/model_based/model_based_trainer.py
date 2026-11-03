@@ -171,13 +171,13 @@ class ModelBasedTrainer(DummyTrainer):
 
         # returns policy used for random exploration
         #may need to be changed based on the env but I think the actions are always clipped to [-1,1] for normalization?
-        # best_sequences is passed through unchanged: random exploration doesn't
-        # touch the iCEM warm-start state, but every policy callable passed to
-        # step_env/rollout_policy needs the same (obs, rng, best_sequences) ->
-        # (action, best_sequences) shape so those methods can stay agnostic to
-        # which kind of policy they were given.
-        exploration_policy = lambda obs, rng, best_sequences: (
-            jax.random.uniform(rng, self.action_shape, minval=-1.0, maxval=1.0), best_sequences
+        # policy_state is passed through unchanged and the model inputs are ignored:
+        # random exploration doesn't touch the optimizer state, but every policy
+        # callable passed to step_env/rollout_policy needs the same
+        # (obs, rng, policy_state, model_params, model_props) -> (action, policy_state)
+        # shape so those methods can stay agnostic to which kind of policy they were given.
+        exploration_policy = lambda obs, rng, policy_state, model_params, model_props: (
+            jax.random.uniform(rng, self.action_shape, minval=-1.0, maxval=1.0), policy_state
         )
         # collect data with the random policy
         policy = exploration_policy

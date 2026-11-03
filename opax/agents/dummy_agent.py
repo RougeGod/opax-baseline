@@ -13,17 +13,24 @@ class DummyAgent(object):
         self.batch_size = batch_size
         self.num_epochs = num_epochs
         self.max_train_steps = max_train_steps
-        self.best_sequences = None
-        self.act_in_train = lambda obs, rng, best_sequences: self.act_in_jax(obs, rng, best_sequences, eval=False)
+        self.policy_state = None
+        self.act_in_train = lambda obs, rng, policy_state, model_params, model_props: self.act_in_jax(
+            obs, rng, policy_state, model_params, model_props, eval=False)
         pass
 
     def act(self, obs: np.ndarray, rng=None, eval: bool = False, eval_idx: int = 0):
         # Eager, non-traced convenience wrapper (used by the old, plain-Python
-        # eval_policy loop) — reads self.best_sequences as a default and
+        # eval_policy loop) — reads self.policy_state as a default and
         # discards whatever updated state comes back, since a single eager
         # call isn't part of any warm-started sequence of steps.
-        action, _ = self.act_in_jax(jnp.asarray(obs), rng, self.best_sequences, eval=eval, eval_idx=eval_idx)
+        model_params, model_props = self.get_model_inputs()
+        action, _ = self.act_in_jax(jnp.asarray(obs), rng, self.policy_state, model_params, model_props,
+                                    eval=eval, eval_idx=eval_idx)
         return np.asarray(action)
+
+    def get_model_inputs(self):
+        """(model_params, model_props) to pass into act_in_jax. Agents without a model return Nones."""
+        return None, None
 
     def act_in_jax(self, obs: jnp.ndarray, rng: Optional[jax.random.PRNGKey] = None, eval: bool = False, eval_idx: int = 0):
         NotImplementedError
