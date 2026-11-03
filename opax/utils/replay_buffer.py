@@ -78,14 +78,14 @@ def merge_transitions(tran_a: Transition, tran_b: Transition, axis=0):
     )
 
 def mask_out_resets(transitions):
-    number_done = jnp.sum(transitions.done) #count the number of transitions with Done=True
-    #this should mean that the first len(tran) - done`transitions are before the resets
-    number_before_reset = jnp.shape(transitions)[0] - number_done
-    return transition_to_jax(Transition(transitions.obs[:number_before_reset],
-                             transitions.action[:number_before_reset],
-                             transitions.next_obs[:number_before_reset],
-                             transitions.reward[:number_before_reset], 
-                             transitions.done[:number_before_reset]))
+    #drop every done transition wherever it is: step_env lays transitions out env by env,
+    #so with n_envs > 1 the auto-reset transitions are spread through the batch, not at the end
+    keep = ~jnp.asarray(transitions.done).reshape(-1).astype(bool)
+    return transition_to_jax(Transition(transitions.obs[keep],
+                             transitions.action[keep],
+                             transitions.next_obs[keep],
+                             transitions.reward[keep],
+                             transitions.done[keep]))
     
 
 

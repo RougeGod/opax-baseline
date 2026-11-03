@@ -229,6 +229,13 @@ def tree_stack(trees: PyTree, axis=0):
 def get_idx(tree: PyTree, idx: int):
     return jax.tree_util.tree_map(lambda x: x[idx], tree)
 
+@jit
+def rewards_to_return(rewards: jax.Array, gamma: jnp.float32):
+    #accepts a floating point gamma and array of rewards
+    #computes the return with correct discounting
+    reward_len = rewards.shape[0]
+    return_weights = jnp.logspace(reward_len-1, 0, base=gamma, num=reward_len, endpoint=True)
+    return jnp.dot(return_weights, rewards)
 
 def convert_to_jax(x):
     return jnp.asarray(x)
