@@ -221,7 +221,8 @@ class ModelBasedTrainer(DummyTrainer):
             train_step_log = {}
             model_log = {}
             env_step_log = {
-                'env_steps': step * self.rollout_steps * self.num_envs,
+                # count this iteration's rollout, which step_env has already collected above
+                'env_steps': (step + 1) * self.rollout_steps * self.num_envs,
                 'learning_step': step,
             }
             # update agent
