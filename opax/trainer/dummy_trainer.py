@@ -367,10 +367,12 @@ class DummyTrainer(object):
             (last_obs, last_state, policy_state, ever_terminated), (obs_sequence, action_sequence,
                                      next_obs_sequence, reward_sequence,
                                      done_sequence) = jax.lax.scan(step_body, (obs, initial_state, policy_state, 0), step_rngs)
-            #calculate the actual average of rewards before dones
-            steps_before_termination = jnp.shape(done_sequence)[0] - jnp.count_nonzero(done_sequence)
+            #reshape the reward sequence to be compatible with the done sequence
+            reward_sequence = reward_sequence.reshape(-1)
+            steps_before_termination = jnp.shape(done_sequence)[0] - jnp.count_nonzero(done_sequence) + 1 
+            #add an additional step: reward on terminating step
             cumulative_reward = jnp.sum(jnp.where(done_sequence - 1, reward_sequence, jnp.zeros(jnp.shape(done_sequence))))
-            return cumulative_reward/steps_before_termination
+            return cumulative_reward #only check cumulative reward == undiscounted return
 
         evaluate_one_env = jax.vmap(evaluate_one_episode, in_axes=[0, None])
         return evaluate_one_env(episode_rngs, policy_state)

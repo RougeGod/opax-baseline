@@ -1,4 +1,4 @@
-from gym.wrappers import RescaleAction, TimeLimit
+from gymnasium.wrappers import RescaleAction, TimeLimit
 from opax.models.active_learning_model import ActiveLearningHUCRLModel, ActiveLearningPETSModel
 from opax.agents.model_based.model_based_agent import ModelBasedAgent
 from opax.trainer.model_based.model_based_trainer import ModelBasedTrainer as Trainer
