@@ -14,7 +14,6 @@ from copy import deepcopy
 import gymnasium as gym
 from opax.utils.utils import gaussian_log_likelihood, sample_normal_dist
 from opax.agents.dummy_agent import DummyAgent
-import wandb
 from typing import Any as Params
 from opax.utils.type_aliases import PolicyProperties
 from opax.utils.utils import convert_to_jax
