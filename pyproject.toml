@@ -89,7 +89,7 @@ env = {UV_OFFLINE="1", WANDB_MODE="offline", SBATCH_ACCOUNT="def-amw8"}
 env = {UV_OFFLINE="1", WANDB_MODE="offline", SBATCH_ACCOUNT="def-amw8"}
 
 [tool.cluv.clusters.narval.sbatch_args]
-gpus = "0"
+gpus = "1"
 
 
 #request MIG on rorqual/nibi/fir
