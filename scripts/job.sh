@@ -7,4 +7,4 @@ mkdir -p "$UV_CACHE_DIR"
 
 # Run the job command passed as an argument when submitting the job ('python main.py' for example)
 echo "Running command: $@"
-srun uv run "$@" --seed "$SLURM_ARRAY_TASK_ID"
+srun uv run "$@" --seed "${SLURM_ARRAY_TASK_ID:-834}" #if not array, default to 834
