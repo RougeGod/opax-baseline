@@ -177,7 +177,8 @@ class ModelBasedTrainer(DummyTrainer):
         # (obs, rng, policy_state, model_params, model_props) -> (action, policy_state)
         # shape so those methods can stay agnostic to which kind of policy they were given.
         exploration_policy = lambda obs, rng, policy_state, model_params, model_props: (
-            jax.random.uniform(rng, self.action_shape, minval=-1.0, maxval=1.0), policy_state
+            jax.random.uniform(rng, (self.num_envs,) + self.env.action_space.shape, minval=-1.0, maxval=1.0),
+            policy_state
         )
         # collect data with the random policy
         policy = exploration_policy
@@ -206,7 +207,10 @@ class ModelBasedTrainer(DummyTrainer):
             policy = self.agent.act_in_train if not self.uniform_exploration else exploration_policy
             actor_rng, val_rng = random.split(actor_rng, 2)
             transitions, obs, done = self.step_env(obs, policy, self.rollout_steps, actor_rng)
-            transitions = mask_out_resets(transitions)
+            # only pure (gymnax-style) envs put the reset obs in next_obs at done; host
+            # (DummyVecEnv) transitions are all real, and the original kept all of them
+            if self._is_pure(self.env):
+                transitions = mask_out_resets(transitions)
             self.buffer_state = self.buffer.add(transitions, self.buffer_state)
             self.agent.set_transforms(
                 bias_obs=self.buffer_state.state_normalizer_state.mean,
@@ -267,10 +271,12 @@ class ModelBasedTrainer(DummyTrainer):
                 # }
                 #train_log.update(scalar_dict)
                 self.logger.log(train_log)
-                self.logger.log({
-                    'env_steps': env_step_log['env_steps'],
-                    **self.agent.dynamics_model.get_dynamics_mae(rng=self.rng, env_name=self.env.env_name),
-                })
+                # ground truth exists only for the JAX envs that set env_name (pendulum, mountain car)
+                if getattr(self.env, "env_name", None) is not None:
+                    self.logger.log({
+                        'env_steps': env_step_log['env_steps'],
+                        **self.agent.dynamics_model.get_dynamics_mae(rng=self.rng, env_name=self.env.env_name),
+                    })
             # step += 1
         self.save_agent(step, agent_name="final_agent")
 

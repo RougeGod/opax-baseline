@@ -57,7 +57,8 @@ class DummyVecEnv(VecEnv):
             step_value = self.envs[env_idx].step(self.actions[env_idx])
             obs = step_value[0]
             #fix a ValueError: setting array element with sequence caused by rewards being an array of lists.
-            self.buf_rews[env_idx] = step_value[1].squeeze() 
+            #np.asarray also handles envs that return a python float reward (e.g. HalfCheetahEnvDM)
+            self.buf_rews[env_idx] = np.asarray(step_value[1]).squeeze()
             self.buf_dones[env_idx] = step_value[2]
             self.buf_truncates[env_idx] = step_value[3]
             self.buf_infos[env_idx] = step_value[4]

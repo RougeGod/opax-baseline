@@ -159,6 +159,61 @@ class DummyTrainer(object):
     def train(self):
         pass
 
+    @staticmethod
+    def _is_pure(env) -> bool:
+        """True for JAX-native envs (pure_step/pure_reset/_state), which are stepped inside
+        jitted scans. Other envs (e.g. dm_control envs built with make_vec_env) have no pure
+        step and are stepped in a Python loop on the host, as in the original trainer."""
+        return hasattr(env, "pure_step")
+
+    def _to_transitions(self, num_steps, obs_sequence, action_sequence, next_obs_sequence, reward_sequence,
+                        dones) -> Transition:
+        """Flatten (num_steps, num_envs, ...) rollout sequences into transitions, env by env."""
+        num_points = int(num_steps * self.num_envs)
+        obs_vec = jnp.reshape(obs_sequence,(num_points,) + self.env.observation_space.shape ,order="F") #concatenate them env by env
+        action_vec = jnp.reshape(action_sequence,(num_points,) + self.env.action_space.shape ,order="F")
+        reward_vec = jnp.reshape(reward_sequence,(num_points,1), order="F")
+        next_obs_vec = jnp.reshape(next_obs_sequence,(num_points,) + self.env.observation_space.shape ,order="F")
+        done_vec = jnp.reshape(dones,(num_points,1), order="F")
+        return Transition(
+            obs=obs_vec,
+            action=action_vec,
+            reward=reward_vec,
+            next_obs=next_obs_vec,
+            done=done_vec,
+        )
+
+    def _host_rollout(self, obs, policy: Callable, num_steps: int, rng: jax.Array):
+        """Python-loop counterpart of the scan in _step_env_scan, for envs without pure_step.
+
+        The policy is still the jitted act_in_jax, so planning runs on device; only the env
+        step happens on the host. DummyVecEnv returns the true final obs as next_obs and puts
+        the reset obs in info["current_env_state"], so every stored transition is a real one
+        and done is the termination flag (not truncation), as in the original trainer.
+        :return: (num_steps, num_envs, ...) sequences (obs, action, next_obs, reward, done),
+            last_obs, last_done, last policy_state
+        """
+        model_params, model_props = self.agent.get_model_inputs()
+        policy_state = self.agent.policy_state
+        # same per-step action keys as the scan path: the first half of each step key
+        act_rngs = jax.vmap(jax.random.split)(jax.random.split(rng, num_steps))[:, 0]
+        obs_seq, action_seq, next_obs_seq, reward_seq, done_seq = [], [], [], [], []
+        last_done = np.zeros(self.num_envs, dtype=bool)
+        for act_rng in act_rngs:
+            action, policy_state = policy(jnp.asarray(obs), act_rng, policy_state, model_params, model_props)
+            action = np.asarray(action).reshape((self.num_envs,) + self.env.action_space.shape)
+            next_obs, reward, terminate, truncate, info = self.env.step(action)
+            obs_seq.append(np.asarray(obs))
+            action_seq.append(action)
+            next_obs_seq.append(np.asarray(next_obs))
+            reward_seq.append(np.asarray(reward).reshape(-1))
+            done_seq.append(np.asarray(terminate).reshape(-1))
+            # continue from the reset obs for envs that just finished
+            obs = np.stack([np.asarray(x["current_env_state"]) for x in info])
+            last_done = np.asarray([x["last_done"] for x in info]).reshape(-1)
+        sequences = tuple(np.stack(s) for s in (obs_seq, action_seq, next_obs_seq, reward_seq, done_seq))
+        return sequences, obs, last_done, policy_state
+
     def save_agent(self, step: int = 0, agent_name: Optional[str] = None):
         """Saves the agent PyTree state using Orbax."""
         if self.agent_save_loc is None:
@@ -245,6 +300,11 @@ class DummyTrainer(object):
         :return: transitions, last_obs, last_done
         """
         self.agent.prepare_agent_for_rollout()
+        if not self._is_pure(self.env):
+            sequences, last_obs, last_done, last_policy_state = self._host_rollout(obs, policy, num_steps, rng)
+            self.agent.policy_state = last_policy_state
+            return self._to_transitions(num_steps, *sequences), last_obs, last_done
+
         model_params, model_props = self.agent.get_model_inputs()
         (last_obs, last_state, last_policy_state), (obs_sequence, action_sequence,
                                     next_obs_sequence, reward_sequence,
@@ -257,25 +317,10 @@ class DummyTrainer(object):
         # continue the real rollout across calls, so the final warm-start
         # state is persisted the same way the env state is.
         self.agent.policy_state = last_policy_state
-        
-        #reshape the jax laxed stuff (which includes a vmap over envs) into vectors of transitions 
-        num_points = int(num_steps * self.num_envs)
-        obs_vec = jnp.reshape(obs_sequence,(num_points,) + self.env.observation_space.shape ,order="F") #concatenate them env by env
-        action_vec = jnp.reshape(action_sequence,(num_points,) + self.env.action_space.shape ,order="F")
-        reward_vec = jnp.reshape(reward_sequence,(num_points,1), order="F")
-        next_obs_vec = jnp.reshape(next_obs_sequence,(num_points,) + self.env.observation_space.shape ,order="F") 
-        done_vec = jnp.reshape(dones,(num_points,1), order="F") 
-        
-        
-        transitions = Transition(
-            obs=obs_vec,
-            action=action_vec,
-            reward=reward_vec,
-            next_obs=next_obs_vec,
-            done=done_vec,
-        )
-        
-        
+
+        #reshape the jax laxed stuff (which includes a vmap over envs) into vectors of transitions
+        transitions = self._to_transitions(num_steps, obs_sequence, action_sequence, next_obs_sequence,
+                                           reward_sequence, dones)
         return transitions, last_obs, dones[-1]
 
     @jax.jit(static_argnames=["self", "policy"])
@@ -310,28 +355,18 @@ class DummyTrainer(object):
             minval=0,
             maxval=num_steps).item()
         obs, _ = self.env.reset(seed=reset_seed)
-        step_rngs = jax.random.split(rng, num_steps)
+        if self._is_pure(self.env):
+            step_rngs = jax.random.split(rng, num_steps)
+            model_params, model_props = self.agent.get_model_inputs()
+            (last_obs, last_state, last_policy_state), \
+            (obs_sequence, action_sequence, next_obs_sequence,
+            reward_sequence, dones) = self.policy_rollout_scan(
+                obs, self.env._state, self.agent.policy_state, model_params, model_props, policy, step_rngs)
+            sequences = (obs_sequence, action_sequence, next_obs_sequence, reward_sequence, dones)
+        else:
+            sequences, _, _, _ = self._host_rollout(obs, policy, num_steps, rng)
 
-        model_params, model_props = self.agent.get_model_inputs()
-        (last_obs, last_state, last_policy_state), \
-        (obs_sequence, action_sequence, next_obs_sequence,
-        reward_sequence, dones) = self.policy_rollout_scan(
-            obs, self.env._state, self.agent.policy_state, model_params, model_props, policy, step_rngs)
-
-        num_points = int(num_steps * self.num_envs)
-        obs_vec = jnp.reshape(obs_sequence,(num_points,) + self.env.observation_space.shape ,order="F") #concatenate them env by env
-        action_vec = jnp.reshape(action_sequence,(num_points,) + self.env.action_space.shape ,order="F")
-        reward_vec = jnp.reshape(reward_sequence,(num_points,1), order="F")
-        next_obs_vec = jnp.reshape(next_obs_sequence,(num_points,) + self.env.observation_space.shape ,order="F") 
-        done_vec = jnp.reshape(dones,(num_points,1), order="F") 
-
-        transitions = Transition(
-            obs=obs_vec,
-            action=action_vec,
-            reward=reward_vec,
-            next_obs=next_obs_vec,
-            done=done_vec,
-        )
+        transitions = self._to_transitions(num_steps, *sequences)
         reset_seed = jax.random.randint(
             reset_rng,
             (1,),
@@ -369,15 +404,26 @@ class DummyTrainer(object):
                                      done_sequence) = jax.lax.scan(step_body, (obs, initial_state, policy_state, 0), step_rngs)
             #reshape the reward sequence to be compatible with the done sequence
             reward_sequence = reward_sequence.reshape(-1)
-            steps_before_termination = jnp.shape(done_sequence)[0] - jnp.count_nonzero(done_sequence) + 1 
-            #add an additional step: reward on terminating step
+            #done is sticky, so this is also the index of the step that ended the episode
+            steps_before_termination = jnp.shape(done_sequence)[0] - jnp.count_nonzero(done_sequence)
+            #rewards of the steps before the terminating step
             cumulative_reward = jnp.sum(jnp.where(done_sequence - 1, reward_sequence, jnp.zeros(jnp.shape(done_sequence))))
+            #add the terminating step's reward, if the episode ended within the scan
+            #(the index is clamped: under vmap, cond becomes a select that evaluates both branches)
+            terminating_index = jnp.minimum(steps_before_termination, jnp.shape(done_sequence)[0] - 1)
+            cumulative_reward += jax.lax.cond(jnp.count_nonzero(done_sequence) > 0,
+                                              lambda: reward_sequence[terminating_index],
+                                              lambda: jnp.zeros((), dtype=reward_sequence.dtype))
             return cumulative_reward #only check cumulative reward == undiscounted return
 
         evaluate_one_env = jax.vmap(evaluate_one_episode, in_axes=[0, None])
         return evaluate_one_env(episode_rngs, policy_state)
 
     def better_eval_policy(self, rng: jax.Array) -> dict:
+        # test envs without pure_step can't be scanned: evaluate them all in eval_policy's host loop
+        if not all(self._is_pure(env) for env in self.test_env):
+            return self.eval_policy(rng=rng)
+
         self.agent.prepare_agent_for_rollout()
         model_params, model_props = self.agent.get_model_inputs()
         reward_log = {}
@@ -395,6 +441,7 @@ class DummyTrainer(object):
     def eval_policy(self, step: int = 0, rng: Optional[jax.Array] = None) -> dict:
         """
         Evaluates policy in the environment till it is done.
+        Only used when the environment is not pure
 
         :param step: Current step for evaluation
         :param rng: key
@@ -403,28 +450,31 @@ class DummyTrainer(object):
         reward_log = {
 
         }
+        rng = self.rng if rng is None else rng
         self.agent.prepare_agent_for_rollout()
-        print(self.test_env)
+        model_params, model_props = self.agent.get_model_inputs()
+        #print(self.test_env)
         for i, env in enumerate(self.test_env):
             pbar = tqdm()
-            avg_reward = 0.0
+            ret = 0.0
             for e in range(self.eval_episodes):
                 obs, _ = env.reset(seed=e)
-                done = False
+                policy_state = self.agent.policy_state
+                terminated = False
+                truncated = False
                 steps = 0
-                while not done:
-                    action = self.agent.act(obs, rng=rng, eval=True, eval_idx=i)
-                    next_obs, reward, terminate, truncate, info = env.step(action)
-                    done = terminate or truncate
-                    avg_reward += reward
+                while not (terminated or truncated):
+                    rng, act_rng = jax.random.split(rng)
+                    action, policy_state = self.agent.act_in_jax(obs, act_rng, policy_state,
+                                                                 model_params, model_props, eval=True, eval_idx=i)
+                    next_obs, reward, terminated, truncated, info = env.step(np.asarray(action))
+                    ret += float(np.asarray(reward).sum())
                     obs = next_obs
                     steps += 1
                     pbar.update(1)
                     # print(steps)
-                    if done:
-                        obs, _ = env.reset(seed=e)
-            avg_reward /= self.eval_episodes
-            reward_log['reward_task_' + str(i)] = avg_reward
+            ret /= self.eval_episodes #average return over number of episodes
+            reward_log['reward_task_' + str(i)] = ret
             pbar.close()
         return reward_log
 

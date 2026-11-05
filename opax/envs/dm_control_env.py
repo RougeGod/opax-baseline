@@ -39,7 +39,8 @@ class DeepMindBridge(gym.Env):
             kwargs['camera_id'] = 0
         return self._env.physics.render(**kwargs)
 
-    def reset(self, seed: [Optional] = None):
+    def reset(self, seed: Optional[int] = None, options: Optional[dict] = None):
+        # options is unused, but gymnasium wrappers always pass it through to the base env
         if seed is not None:
             self._np_random, seed = seeding.np_random(seed)
             self._env._task._random = np.random.RandomState(seed)
