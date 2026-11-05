@@ -65,7 +65,7 @@ class DummyTrainer(object):
                  learn_deltas: bool = True,
                  record_test_video: bool = False,
                  video_prefix: str = "",
-                 video_folder: str = "./opax_results",
+                 video_folder: str = "./opax_results/",
                  test_env: Optional[Union[VecEnv, Env]] = None,
                  ):
         self.env = env
