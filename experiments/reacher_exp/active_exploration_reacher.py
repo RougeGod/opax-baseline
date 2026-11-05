@@ -1,4 +1,4 @@
-from gym.wrappers import RescaleAction, TimeLimit
+from gymnasium.wrappers import RescaleAction, TimeLimit
 from opax.utils.vec_env.env_util import make_vec_env
 from opax.models.active_learning_model import ActiveLearningHUCRLModel, ActiveLearningPETSModel
 from opax.agents.model_based.model_based_agent import ModelBasedAgent
@@ -309,7 +309,7 @@ if __name__ == '__main__':
     parser.add_argument('--n_envs', type=int, default=1)
 
     # optimizer experiment args
-    parser.add_argument('--optimizer_type', type=str, default='TraJaxTO')
+    parser.add_argument('--optimizer_type', type=str, default='iCemTO')
     parser.add_argument('--num_samples', type=int, default=500)
     parser.add_argument('--num_elites', type=int, default=50)
     parser.add_argument('--num_steps', type=int, default=5)
