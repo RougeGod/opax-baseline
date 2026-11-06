@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --time=5:59:59
 #SBATCH --cpus-per-task=8
-#SBATCH --mem-per-cpu=3G
+#SBATCH --mem=4G
 #SBATCH --account=aip-amw8
 #SBATCH --gpus=1
 
