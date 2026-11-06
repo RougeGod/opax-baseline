@@ -62,8 +62,17 @@ class ModelBasedTrainer(DummyTrainer):
             reward_vec = np.zeros((num_points,))
             next_obs_vec = np.zeros(obs_shape)
             done_vec = np.zeros((num_points,), dtype=bool)
+            if hasattr(self.env, "sample_obs"):
+                # JAX envs sample valid states with their own pure sampler (an unbounded
+                # observation_space.sample() would not give real states). The key is derived
+                # without advancing self.rng, so training randomness is unchanged.
+                obs_samples = np.asarray(self.env.sample_obs(jax.random.fold_in(self.rng, validation_buffer_size),
+                                                             validation_buffer_size))
             for step in range(validation_buffer_size):
-                obs = self.env.observation_space.sample()
+                if hasattr(self.env, "sample_obs"):
+                    obs = obs_samples[step]
+                else:
+                    obs = self.env.observation_space.sample()
                 action = self.env.action_space.sample()
                 obs_vec[step * self.num_envs: (step + 1) * self.num_envs] = obs
                 action_vec[step * self.num_envs: (step + 1) * self.num_envs] = action

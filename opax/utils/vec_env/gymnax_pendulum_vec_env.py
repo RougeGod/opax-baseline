@@ -3,7 +3,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 from gymnasium.spaces import Box
-from gymnax.environments.classic_control.pendulum import angle_normalize
+from gymnax.environments.classic_control.pendulum import angle_normalize, EnvState
 from opax.models.environment_models.pendulum_swing_up import PendulumReward
 
     
@@ -28,7 +28,7 @@ class GymnaxPendulumVecEnv:
     """
     env_name = "Pendulum-v1"
 
-    def __init__(self, n_envs: int, seed: int, time_limit: int = 200):
+    def __init__(self, n_envs: int, seed: int, time_limit: int = 200, reset_always_down=False):
         self.num_envs = n_envs
         self.env, self.env_params = gymnax.make("Pendulum-v1")
         self.env_params = self.env_params.replace(max_steps_in_episode=time_limit)
@@ -37,13 +37,27 @@ class GymnaxPendulumVecEnv:
         self._raw_action_high = self.env_params.max_torque
         self.action_space = Box(low=-1.0, high=1.0, shape=(1,), dtype=np.float32)
         self.observation_space = Box(low=-np.inf, high=np.inf, shape=(3,), dtype=np.float32)
-
+        self.reset_always_down = reset_always_down
         self._reset_fn = jax.jit(jax.vmap(self.env.reset, in_axes=(0, None)))
         self._step_fn = jax.jit(jax.vmap(self.env.step, in_axes=(0, 0, 0, None)))
 
         self.rng = jax.random.PRNGKey(seed)
         self._state = None
         self.reset(seed=seed)
+
+    @jax.jit(static_argnames=["self", "num_samples"])
+    def sample_obs(self, rng: jax.Array, num_samples: int):
+        """Instead of sampling states from Box, make sure the states 
+        are valid pendulum states.
+
+        :param rng: jax.Array, rng key
+        :param num_samples: int, number of observations to sample
+        :return: observations, shape (num_samples, 3)
+        """
+        high = jnp.array([jnp.pi, 1.0])
+        samples = jax.random.uniform(rng, (num_samples, 2), minval=-high, maxval=high)
+        theta, thetadot = samples[:, 0], samples[:, 1]
+        return jnp.stack([jnp.cos(theta), jnp.sin(theta), thetadot], axis=-1).astype(jnp.float32)
 
     def _rescale_action(self, action: np.ndarray) -> jnp.ndarray:
         action = jnp.clip(jnp.asarray(action), -1.0, 1.0)
@@ -72,6 +86,18 @@ class GymnaxPendulumVecEnv:
         obs, self._state = self.pure_reset(reset_rng)
         obs_np = np.asarray(obs)
         return obs_np, [{} for _ in range(self.num_envs)]
+    
+    @jax.jit(static_argnames=["self"])
+    def straight_down_reset(self, seed=None, env_params=None):
+        #reset is not random and does not depend on env params
+        #but we need it to have the same signature. 
+        #ignore these inputs
+        reset_state = EnvState(time=jnp.zeros((), dtype=jnp.float32),
+                               theta=jnp.zeros((), dtype=jnp.float32),
+                               theta_dot=jnp.zeros((), dtype=jnp.float32),
+                               last_u=jnp.zeros((), dtype=jnp.float32))
+                                
+        return self.env.get_obs(reset_state), reset_state
 
     @jax.jit(static_argnames=["self"])
     def pure_step(self, rng: jax.Array, env_state, action: jnp.ndarray):
