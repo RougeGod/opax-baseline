@@ -27,7 +27,7 @@ def experiment(logs_dir: str, use_wandb: bool, exp_name: str, time_limit: int, n
                num_epochs: int, rollout_steps: int, normalize: bool, action_normalize: bool, validate: bool,
                record_test_video: bool, validation_buffer_size: int, validation_batch_size: int,
                seed: int, exploration_strategy: str, use_log: bool, use_al: bool, action_cost: float = 0.0,
-               time_limit_eval: Optional[int] = None):
+               time_limit_eval: Optional[int] = None, reset_always_down: bool=True):
     """ Run experiment for a given method and environment. """
     import jax.numpy as jnp
     """ Environment """
@@ -85,7 +85,7 @@ def experiment(logs_dir: str, use_wandb: bool, exp_name: str, time_limit: int, n
     # gymnasium/NumPy CustomPendulumEnv, to avoid per-substep Python dispatch
     # during training. Test/eval envs below are unaffected and keep using
     # CustomPendulumEnv's keep-down/swing-up reward variants.
-    env = GymnaxPendulumVecEnv(n_envs=n_envs, seed=seed, time_limit=time_limit)
+    env = GymnaxPendulumVecEnv(n_envs=n_envs, seed=seed, time_limit=time_limit, reset_always_down=reset_always_down)
     env_kwargs_swing_up = {
         'target_angle': 0.0,
     }
@@ -333,6 +333,7 @@ def main(args):
         use_al=args.use_al,
         time_limit_eval=args.time_limit_eval,
         action_cost=args.action_cost,
+        reset_always_down=args.reset_always_down,
     )
 
     t_end = time.time()
@@ -366,6 +367,7 @@ if __name__ == '__main__':
     # env experiment args
     parser.add_argument('--time_limit', type=int, default=200)
     parser.add_argument('--n_envs', type=int, default=5)
+    parser.add_argument('--reset_always_down', default=False, action='store_true')
 
     # optimizer experiment args
     parser.add_argument('--optimizer_type', type=str, default='iCemTO')
