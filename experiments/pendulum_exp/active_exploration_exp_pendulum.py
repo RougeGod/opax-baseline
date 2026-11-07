@@ -92,8 +92,10 @@ def experiment(logs_dir: str, use_wandb: bool, exp_name: str, time_limit: int, n
     
     
 
-    test_env_keep_down = CompiledPendulumTargetAngleEnv(target_angle=jnp.pi, seed=seed)
-    test_env_swing_up = CompiledPendulumTargetAngleEnv(target_angle=0.00, seed=seed+1)
+    test_env_keep_down = CompiledPendulumTargetAngleEnv(target_angle=jnp.pi, seed=seed,
+                                                        reset_always_down=reset_always_down)
+    test_env_swing_up = CompiledPendulumTargetAngleEnv(target_angle=0.00, seed=seed+1,
+                                                       reset_always_down=reset_always_down)
     
     test_env = [test_env_keep_down, test_env_swing_up]
     features = [num_neurons] * hidden_layers

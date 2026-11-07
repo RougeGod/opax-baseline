@@ -1,4 +1,4 @@
-from gym.wrappers import RescaleAction, TimeLimit
+from gymnasium.wrappers import RescaleAction, TimeLimit
 from opax.utils.vec_env.env_util import make_vec_env
 from opax.models.active_learning_model import ActiveLearningHUCRLModel, ActiveLearningPETSModel
 from opax.agents.model_based.model_based_agent import ModelBasedAgent
