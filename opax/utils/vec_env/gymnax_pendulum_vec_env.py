@@ -38,8 +38,13 @@ class GymnaxPendulumVecEnv:
         self.action_space = Box(low=-1.0, high=1.0, shape=(1,), dtype=np.float32)
         self.observation_space = Box(low=-np.inf, high=np.inf, shape=(3,), dtype=np.float32)
         self.reset_always_down = reset_always_down
-        self._reset_fn = jax.jit(jax.vmap(self.env.reset, in_axes=(0, None)))
-        self._step_fn = jax.jit(jax.vmap(self.env.step, in_axes=(0, 0, 0, None)))
+        if reset_always_down:
+            # Both the explicit reset and gymnax's auto-reset inside step must start straight down.
+            self._reset_fn = jax.jit(jax.vmap(self.straight_down_reset, in_axes=(0, None)))
+            self._step_fn = jax.jit(jax.vmap(self._step_straight_down_reset, in_axes=(0, 0, 0, None)))
+        else:
+            self._reset_fn = jax.jit(jax.vmap(self.env.reset, in_axes=(0, None)))
+            self._step_fn = jax.jit(jax.vmap(self.env.step, in_axes=(0, 0, 0, None)))
 
         self.rng = jax.random.PRNGKey(seed)
         self._state = None
@@ -87,17 +92,27 @@ class GymnaxPendulumVecEnv:
         obs_np = np.asarray(obs)
         return obs_np, [{} for _ in range(self.num_envs)]
     
-    @jax.jit(static_argnames=["self"])
-    def straight_down_reset(self, seed=None, env_params=None):
-        #reset is not random and does not depend on env params
-        #but we need it to have the same signature. 
-        #ignore these inputs
-        reset_state = EnvState(time=jnp.zeros((), dtype=jnp.float32),
-                               theta=jnp.zeros((), dtype=jnp.float32),
-                               theta_dot=jnp.zeros((), dtype=jnp.float32),
-                               last_u=jnp.zeros((), dtype=jnp.float32))
-                                
+    def straight_down_reset(self, key=None, env_params=None):
+        """Single-env reset to [theta, theta_dot] = [pi, 0] (pointing down), as
+        ``CustomPendulumEnv.reset`` does. theta = 0 is upright in gymnax/gymnasium.
+        Same signature as gymnax's ``reset_env`` so it can be vmapped the same way;
+        the reset is deterministic, so ``key`` and ``env_params`` are ignored.
+        Field values/dtypes mirror gymnax's ``reset_env`` (time is an int), so
+        ``lax.select`` in the auto-reset and the scan carry see consistent types.
+        """
+        reset_state = EnvState(theta=jnp.array(jnp.pi), theta_dot=jnp.array(0.0),
+                               last_u=jnp.array(0.0), time=0)
         return self.env.get_obs(reset_state), reset_state
+
+    def _step_straight_down_reset(self, key, state, action, params):
+        """gymnax ``Environment.step`` with the auto-reset going to
+        ``straight_down_reset`` instead of gymnax's random ``reset_env``."""
+        key_step, key_reset = jax.random.split(key)
+        obs_st, state_st, reward, done, info = self.env.step_env(key_step, state, action, params)
+        obs_re, state_re = self.straight_down_reset(key_reset, params)
+        state = jax.tree.map(lambda x, y: jax.lax.select(done, x, y), state_re, state_st)
+        obs = jax.lax.select(done, obs_re, obs_st)
+        return obs, state, reward, done, info
 
     @jax.jit(static_argnames=["self"])
     def pure_step(self, rng: jax.Array, env_state, action: jnp.ndarray):
@@ -166,8 +181,9 @@ class CompiledPendulumTargetAngleEnv(GymnaxPendulumVecEnv):
     ``EnvState`` positionally.
     """
 
-    def __init__(self, target_angle, seed):
-        super(CompiledPendulumTargetAngleEnv, self).__init__(n_envs=1, seed=seed)
+    def __init__(self, target_angle, seed, reset_always_down=False):
+        super(CompiledPendulumTargetAngleEnv, self).__init__(n_envs=1, seed=seed,
+                                                             reset_always_down=reset_always_down)
 
         #no control costs on these envs for comparisons with MUE (vanilla envs!)
         self._reward_model = PendulumReward(action_space=self.action_space, ctrl_cost_weight=0.00,

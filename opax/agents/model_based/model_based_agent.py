@@ -220,7 +220,7 @@ class ModelBasedAgent(DummyAgent):
         carry = [rng, alpha, model_params, model_opt_state]
         ins = transitions, val_transitions
     #pull this out to avoid recompilation of every gradient step
-        carry, outs = jax.lax.scan(self.step, carry, ins, length=self.train_steps)
+        carry, outs = jax.lax.scan(self.step, carry, ins)#, length=self.train_steps)
         return carry, outs
         
 
