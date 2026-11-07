@@ -330,7 +330,7 @@ if __name__ == '__main__':
     parser.add_argument('--time_limit_eval', type=int, default=200)
 
     # general args
-    parser.add_argument('--exp_result_folder', type=str, default=None)
+    parser.add_argument('--exp_result_folder', type=str, default="opax_results/mountain_car")
     parser.add_argument('--seed', type=int, default=834, help='random number generator seed')
 
     args = parser.parse_args()
