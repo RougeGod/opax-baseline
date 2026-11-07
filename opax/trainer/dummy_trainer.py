@@ -97,11 +97,12 @@ class DummyTrainer(object):
         self.agent = agent
         now = datetime.now()
         dt_string = now.strftime("%d_%m_%Y_%H_%M_%S")
-        self.video_dir_name = video_folder + 'video' + str(seed) + video_prefix + dt_string
+        # os.path.join so a folder given without a trailing slash still gets its own subdirectory
+        self.video_dir_name = os.path.join(video_folder, 'video' + str(seed) + video_prefix + dt_string)
         self.record_test_video = record_test_video
         self.logger = None
         if self.use_wandb:
-            log_dir = video_folder + 'csv_logs' + str(seed) + video_prefix + dt_string
+            log_dir = os.path.join(video_folder, 'csv_logs' + str(seed) + video_prefix + dt_string)
             self.logger = CSVLogger(log_dir)
 
         if self.agent_load_loc is not None:
