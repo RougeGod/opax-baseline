@@ -292,7 +292,7 @@ def main(args):
     np.random.seed(args.seed + 5)
 
     eval_metrics = experiment(
-        logs_dir=args.logs_dir,
+        logs_dir=args.logs_dir if args.logs_dir is not None else (args.exp_result_folder or './'),
         use_wandb=args.use_wandb,
         exp_name=args.exp_name,
         time_limit=args.time_limit,
@@ -362,7 +362,8 @@ if __name__ == '__main__':
 
     # general experiment args
     parser.add_argument('--exp_name', type=str, required=True, default='active_exploration')
-    parser.add_argument('--logs_dir', type=str, default='./')
+    # csv logs/videos go here; defaults to exp_result_folder so cluv sync picks them up
+    parser.add_argument('--logs_dir', type=str, default=None)
     parser.add_argument('--use_wandb', default=False, action="store_true")
     parser.add_argument('--agent_save_loc', type=str, default=None) #if left as none, don't save agent
     parser.add_argument('--agent_load_loc', type=str, default=None) #if left as none, make new agent
