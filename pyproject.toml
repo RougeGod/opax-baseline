@@ -64,6 +64,8 @@ env = {UV_OFFLINE="1", WANDB_MODE="offline", SBATCH_ACCOUNT="aip-amw8"}
 
 [tool.cluv.clusters.killarney]
 env = {UV_OFFLINE="1", WANDB_MODE="offline", SBATCH_ACCOUNT="aip-amw8"}
+# Killarney refuses jobs submitted from /home: clone the project and run jobs from /project.
+project_dir = "/project/aip-amw8/$USER/opax"
 
 [tool.cluv.clusters.vulcan]
 env = {UV_OFFLINE="1", WANDB_MODE="offline", SBATCH_ACCOUNT="aip-amw8"}
