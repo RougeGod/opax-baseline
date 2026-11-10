@@ -24,14 +24,13 @@ def experiment(logs_dir: str, use_wandb: bool, time_limit: int, n_envs: int, exp
                max_train_steps: int, rollout_steps: int, normalize: bool, action_normalize: bool, validate: bool,
                record_test_video: bool, validation_buffer_size: int, validation_batch_size: int,
                seed: int, exploration_strategy: str, use_log: bool, use_al: bool, action_cost: float = 0.0,
-               time_limit_eval: Optional[int] = None):
+               time_limit_eval: Optional[int] = None, action_repeat: int = 4):
     """ Run experiment for a given method and environment. """
 
     """ Environment """
     from opax.utils.vec_env.env_util import make_vec_env
     # from jax.config import config
     # config.update("jax_log_compiles", 1)
-    action_repeat = 4
     lr = 5e-5
     import math
     time_lim = math.ceil(time_limit / action_repeat)
@@ -340,6 +339,7 @@ def main(args):
         use_log=args.use_log,
         use_al=args.use_al,
         time_limit_eval=args.time_limit_eval,
+        action_repeat=args.action_repeat,
         action_cost=args.action_cost,
     )
 
@@ -372,7 +372,9 @@ if __name__ == '__main__':
     parser.add_argument('--use_wandb', default=False, action="store_true")
     # env experiment args
     parser.add_argument('--time_limit', type=int, default=1000)
-    parser.add_argument('--n_envs', type=int, default=10)
+    parser.add_argument('--n_envs', type=int, default=1)
+    # env steps per agent action; episode lengths are time_limit / action_repeat agent steps
+    parser.add_argument('--action_repeat', type=int, default=4)
 
     # optimizer experiment args
     parser.add_argument('--optimizer_type', type=str, default='SacOpt')
@@ -392,20 +394,20 @@ if __name__ == '__main__':
     parser.add_argument('--hidden_layers', type=int, default=4)
     parser.add_argument('--num_neurons', type=int, default=256)
     parser.add_argument('--pred_diff', default=True, action="store_true")
-    parser.add_argument('--beta', type=float, default=1.0)
+    parser.add_argument('--beta', type=float, default=2.0)
     parser.add_argument('--deterministic', default=True, action="store_true")
 
     # trainer experiment args
-    parser.add_argument('--batch_size', type=int, default=256)
-    parser.add_argument('--max_train_steps', type=int, default=5000)
+    parser.add_argument('--batch_size', type=int, default=64)
+    parser.add_argument('--max_train_steps', type=int, default=7500)
     parser.add_argument('--eval_freq', type=int, default=50)
-    parser.add_argument('--total_train_steps', type=int, default=10000)
+    parser.add_argument('--total_train_steps', type=int, default=100000)
     parser.add_argument('--buffer_size', type=int, default=1000000)
     parser.add_argument('--exploration_steps', type=int, default=1000)
     parser.add_argument('--eval_episodes', type=int, default=1)
     parser.add_argument('--train_freq', type=int, default=1)
-    parser.add_argument('--train_steps', type=int, default=5000)
-    parser.add_argument('--num_epochs', type=int, default=-1)
+    parser.add_argument('--train_steps', type=int, default=7500)
+    parser.add_argument('--num_epochs', type=int, default=50)
     parser.add_argument('--rollout_steps', type=int, default=250)
     parser.add_argument('--normalize', default=True, action="store_true")
     parser.add_argument('--action_normalize', default=True, action="store_true")

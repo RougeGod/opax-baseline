@@ -25,13 +25,12 @@ def experiment(logs_dir: str, use_wandb: bool, time_limit: int, n_envs: int, exp
                max_train_steps: int, rollout_steps: int, normalize: bool, action_normalize: bool, validate: bool,
                record_test_video: bool, validation_buffer_size: int, validation_batch_size: int,
                seed: int, exploration_strategy: str, use_log: bool, use_al: bool, action_cost: float = 0.0,
-               time_limit_eval: Optional[int] = None):
+               time_limit_eval: Optional[int] = None, action_repeat: int = 1):
     """ Run experiment for a given method and environment. """
 
     """ Environment """
     # from jax.config import config
     # config.update("jax_log_compiles", 1)
-    action_repeat = 1
     import math
     time_lim = math.ceil(time_limit / action_repeat)
     wrapper_cls = lambda x: RescaleAction(
@@ -276,6 +275,7 @@ def main(args):
         use_al=args.use_al,
         action_cost=args.action_cost,
         time_limit_eval=args.time_limit_eval,
+        action_repeat=args.action_repeat,
     )
 
     t_end = time.time()
@@ -308,6 +308,8 @@ if __name__ == '__main__':
     # env experiment args
     parser.add_argument('--time_limit', type=int, default=1000)
     parser.add_argument('--n_envs', type=int, default=1)
+    # env steps per agent action; episode lengths are time_limit / action_repeat agent steps
+    parser.add_argument('--action_repeat', type=int, default=1)
 
     # optimizer experiment args
     parser.add_argument('--optimizer_type', type=str, default='iCemTO')

@@ -29,7 +29,7 @@ class ModelBasedTrainer(DummyTrainer):
         :param args:
         :param kwargs:
         """
-
+        
         super(ModelBasedTrainer, self).__init__(agent=agent, agent_name=agent_name, *args, **kwargs)
         assert isinstance(self.agent, ModelBasedAgent), "Only Model based agents are allowed"
         self.validation_buffer = None
@@ -66,8 +66,7 @@ class ModelBasedTrainer(DummyTrainer):
                 # JAX envs sample valid states with their own pure sampler (an unbounded
                 # observation_space.sample() would not give real states). The key is derived
                 # without advancing self.rng, so training randomness is unchanged.
-                obs_samples = np.asarray(self.env.sample_obs(jax.random.fold_in(self.rng, validation_buffer_size),
-                                                             validation_buffer_size))
+                obs_samples = np.asarray(self.env.sample_obs(jax.random.fold_in(self.rng, validation_buffer_size),validation_buffer_size))
             for step in range(validation_buffer_size):
                 if hasattr(self.env, "sample_obs"):
                     obs = obs_samples[step]
