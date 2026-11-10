@@ -335,7 +335,7 @@ if __name__ == '__main__':
     # trainer experiment args
     parser.add_argument('--batch_size', type=int, default=256)
     parser.add_argument('--max_train_steps', type=int, default=5000)
-    parser.add_argument('--eval_freq', type=int, default=50)
+    parser.add_argument('--eval_freq', type=int, default=1)
     parser.add_argument('--total_train_steps', type=int, default=10000)
     parser.add_argument('--buffer_size', type=int, default=1000000)
     parser.add_argument('--exploration_steps', type=int, default=1000)
