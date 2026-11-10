@@ -373,7 +373,6 @@ if __name__ == '__main__':
     # env experiment args
     parser.add_argument('--time_limit', type=int, default=1000)
     parser.add_argument('--n_envs', type=int, default=1)
-    # env steps per agent action; episode lengths are time_limit / action_repeat agent steps
     parser.add_argument('--action_repeat', type=int, default=4)
 
     # optimizer experiment args
@@ -401,7 +400,7 @@ if __name__ == '__main__':
     parser.add_argument('--batch_size', type=int, default=64)
     parser.add_argument('--max_train_steps', type=int, default=7500)
     parser.add_argument('--eval_freq', type=int, default=50)
-    parser.add_argument('--total_train_steps', type=int, default=100000)
+    parser.add_argument('--total_train_steps', type=int, default=125000)
     parser.add_argument('--buffer_size', type=int, default=1000000)
     parser.add_argument('--exploration_steps', type=int, default=1000)
     parser.add_argument('--eval_episodes', type=int, default=1)
