@@ -171,6 +171,10 @@ class DummyTrainer(object):
                         dones) -> Transition:
         """Flatten (num_steps, num_envs, ...) rollout sequences into transitions, env by env."""
         num_points = int(num_steps * self.num_envs)
+        # envs that map the chosen action to a different applied one (e.g. DeepSea's a > 0 -> right)
+        # store the applied action, so the model learns from what the env actually did
+        if hasattr(self.env, "applied_action"):
+            action_sequence = self.env.applied_action(action_sequence)
         obs_vec = jnp.reshape(obs_sequence,(num_points,) + self.env.observation_space.shape ,order="F") #concatenate them env by env
         action_vec = jnp.reshape(action_sequence,(num_points,) + self.env.action_space.shape ,order="F")
         reward_vec = jnp.reshape(reward_sequence,(num_points,1), order="F")
