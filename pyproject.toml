@@ -47,7 +47,7 @@ where = ["."]
 include = ["*"]
 
 [tool.cluv]
-results_path = "opax_results"
+results_path = "Desktop/Dossier/opax/opax_results"
 job_script_path = "scripts/job.sh"
 env = {}
 
