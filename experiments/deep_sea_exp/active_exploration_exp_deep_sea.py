@@ -320,8 +320,11 @@ if __name__ == '__main__':
     parser.add_argument('--action_cost', type=float, default=0.0)
 
     # general args
-    parser.add_argument('--exp_result_folder', type=str, default="opax_results/deep_sea")
+    # defaults to opax_results/deep_sea_size<size>, so runs on different grid sizes don't mix
+    parser.add_argument('--exp_result_folder', type=str, default=None)
     parser.add_argument('--seed', type=int, default=834, help='random number generator seed')
 
     args = parser.parse_args()
+    if args.exp_result_folder is None:
+        args.exp_result_folder = f"opax_results/deep_sea_size{args.size}"
     main(args)
