@@ -397,7 +397,7 @@ if __name__ == '__main__':
     parser.add_argument('--exploration_steps', type=int, default=1000)
     parser.add_argument('--eval_episodes', type=int, default=1)
     parser.add_argument('--train_freq', type=int, default=1)
-    parser.add_argument('--train_steps', type=int, default=5000)
+    parser.add_argument('--train_steps', type=int, default=37500)
     parser.add_argument('--num_epochs', type=int, default=-1)
     parser.add_argument('--rollout_steps', type=int, default=250)
     parser.add_argument('--normalize', default=True, action="store_true")
