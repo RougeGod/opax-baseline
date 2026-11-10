@@ -103,7 +103,7 @@ def experiment(logs_dir: str, use_wandb: bool, exp_name: str, time_limit: int, n
     reward_model_keep_down.set_bounds(max_action=1.0)
     reward_model_swing_up = PendulumReward(action_space=env.action_space, target_angle=0.0)
     reward_model_swing_up.set_bounds(max_action=1.0)
-    video_prefix = ""
+    video_prefix = "Pendulum"
     if exploration_strategy == 'Mean':
         beta = 0.0
         video_prefix += 'Mean'
@@ -386,24 +386,24 @@ if __name__ == '__main__':
     parser.add_argument('--reset_model', default=False, action="store_true")
 
     # dynamics_model experiment args
-    parser.add_argument('--num_ensembles', type=int, default=5)
+    parser.add_argument('--num_ensembles', type=int, default=7)
     parser.add_argument('--hidden_layers', type=int, default=2)
-    parser.add_argument('--num_neurons', type=int, default=128)
+    parser.add_argument('--num_neurons', type=int, default=256)
     parser.add_argument('--pred_diff', default=True, action="store_true")
-    parser.add_argument('--beta', type=float, default=1.0)
+    parser.add_argument('--beta', type=float, default=2.0)
     parser.add_argument('--deterministic', default=True, action="store_true")
 
     # trainer experiment args
-    parser.add_argument('--batch_size', type=int, default=128)
+    parser.add_argument('--batch_size', type=int, default=64)
     parser.add_argument('--max_train_steps', type=int, default=5000)
     parser.add_argument('--eval_freq', type=int, default=1)
-    parser.add_argument('--total_train_steps', type=int, default=2500)
+    parser.add_argument('--total_train_steps', type=int, default=5000)
     parser.add_argument('--buffer_size', type=int, default=1000000)
     parser.add_argument('--exploration_steps', type=int, default=0)
     parser.add_argument('--eval_episodes', type=int, default=1)
     parser.add_argument('--train_freq', type=int, default=1)
     parser.add_argument('--train_steps', type=int, default=5000)
-    parser.add_argument('--num_epochs', type=int, default=-1)
+    parser.add_argument('--num_epochs', type=int, default=50)
     parser.add_argument('--rollout_steps', type=int, default=200)
     parser.add_argument('--normalize', default=True, action="store_true")
     parser.add_argument('--action_normalize', default=True, action="store_true")

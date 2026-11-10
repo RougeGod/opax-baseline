@@ -84,7 +84,7 @@ def experiment(logs_dir: str, use_wandb: bool, exp_name: str, time_limit: int, n
     test_env = [test_env_swing_up]
     reward_model = PendulumReward(action_space=env.action_space, target_angle=0.0)
     reward_model.set_bounds(max_action=1.0)
-    video_prefix = ""
+    video_prefix = "PendulumGP"
     if exploration_strategy == 'Mean':
         beta = 0.0
         video_prefix += 'Mean'
