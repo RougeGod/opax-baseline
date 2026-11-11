@@ -7,4 +7,4 @@ mkdir -p "$UV_CACHE_DIR"
 
 # Run the job command passed as an argument when submitting the job ('python main.py' for example)
 echo "Running command: $@"
-parallel uv run "$@" --seed {3} --size {1} --total_train_steps {2} ::: $(seq 25 5 50) :::+ $(seq 250000 50000 500000) ::: $(seq 50 79)
+parallel uv run "$@" --seed {3} --size {1} --horizon {1} --total_train_steps {2} ::: $(seq 25 5 50) :::+ $(seq 250000 50000 500000) ::: $(seq 50 79)

@@ -47,7 +47,8 @@ where = ["."]
 include = ["*"]
 
 [tool.cluv]
-results_path = "Desktop/Dossier/opax/opax_results"
+# $HOME expands on each cluster (via its login shell) and locally, so this works from any cwd.
+results_path = "$HOME/Desktop/Dossier/opax/opax_results"
 job_script_path = "scripts/job.sh"
 env = {}
 
@@ -66,6 +67,7 @@ env = {UV_OFFLINE="1", WANDB_MODE="offline", SBATCH_ACCOUNT="aip-amw8"}
 env = {UV_OFFLINE="1", WANDB_MODE="offline", SBATCH_ACCOUNT="aip-amw8"}
 # Killarney refuses jobs submitted from /home: clone the project and run jobs from /project.
 project_dir = "/project/aip-amw8/$USER/opax"
+results_path = "/project/aip-amw8/$USER/opax/opax_results"
 
 [tool.cluv.clusters.vulcan]
 env = {UV_OFFLINE="1", WANDB_MODE="offline", SBATCH_ACCOUNT="aip-amw8"}
