@@ -219,8 +219,42 @@ class DummyTrainer(object):
         sequences = tuple(np.stack(s) for s in (obs_seq, action_seq, next_obs_seq, reward_seq, done_seq))
         return sequences, obs, last_done, policy_state
 
+    def save_replay_buffer(self):
+        """Write the filled part of the replay buffer to replay_buffer.npz in the csv log dir,
+        for offline analysis (e.g. action summaries, state coverage). Overwrites the previous
+        snapshot; the final call at the end of training holds the whole run.
+
+        Transitions are raw (unnormalized), with applied actions, in collection order as long as the
+        run adds fewer than buffer_size transitions (the buffer never wraps). Episode-ending
+        transitions of pure envs are not in the buffer (mask_out_resets drops them before adding).
+        Only written when csv logging is on (--use_wandb), since the log dir only exists then.
+        """
+        if self.logger is None:
+            return
+        size = int(self.buffer_state.size)
+        tran = self.buffer_state.tran
+        path = os.path.join(self.logger.log_dir, 'replay_buffer.npz')
+        tmp_path = path + '.tmp.npz'
+        # write then rename, so an interrupted write never leaves a truncated file
+        np.savez_compressed(
+            tmp_path,
+            obs=np.asarray(tran.obs[:size]),
+            action=np.asarray(tran.action[:size]),
+            next_obs=np.asarray(tran.next_obs[:size]),
+            reward=np.asarray(tran.reward[:size]),
+            done=np.asarray(tran.done[:size]),
+            # to split the history into the initial random rollout and the per-iteration rollouts
+            num_envs=self.num_envs,
+            rollout_steps=self.rollout_steps,
+            exploration_steps=self.exploration_steps,
+            # once size reaches buffer_size the buffer has wrapped and collection order is lost
+            buffer_size=self.buffer_size,
+        )
+        os.replace(tmp_path, path)
+
     def save_agent(self, step: int = 0, agent_name: Optional[str] = None):
-        """Saves the agent PyTree state using Orbax."""
+        """Saves the agent PyTree state using Orbax, and the replay buffer (see save_replay_buffer)."""
+        self.save_replay_buffer()
         if self.agent_save_loc is None:
             return
 
